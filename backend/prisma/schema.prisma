@@ -1,0 +1,328 @@
+// AI Corporate Operations Agent — Database Schema
+// Reference: SRS-OPS-AI-2026-V1.1, Section 9 (Database Schema Design)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────
+
+enum Role {
+  SYSTEM_ADMIN
+  DEPARTMENT_MANAGER
+  TEAM_LEAD
+  FINANCE_APPROVER
+  EMPLOYEE
+}
+
+enum RequestChannel {
+  slack
+  assistant_ui
+  email
+}
+
+enum RequestStatus {
+  DRAFT
+  PENDING_POLICY_CHECK
+  PENDING_MANAGER_APPROVAL
+  PENDING_FINANCE_APPROVAL
+  APPROVED
+  REJECTED
+  ESCALATED
+  COMPLETED
+  CANCELLED
+}
+
+enum ExecutionStepStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  SKIPPED
+}
+
+enum ApprovalDecision {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum AttachmentSource {
+  slack
+  assistant_ui
+  email
+}
+
+// ─────────────────────────────────────────────
+// Core tenancy & identity
+// ─────────────────────────────────────────────
+
+model Tenant {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  slackTeamId String?  @map("slack_team_id")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  users              User[]
+  requests           Request[]
+  financeDelegations FinanceDelegation[]
+  policyDocuments    PolicyDocument[]
+  auditLogs          AuditLog[]
+  conversations      Conversation[]
+
+  @@map("tenants")
+}
+
+model User {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  email       String
+  name        String
+  passwordHash String? @map("password_hash")
+  role        Role     @default(EMPLOYEE)
+  department  String?
+  slackUserId String?  @map("slack_user_id")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  requestsMade        Request[]           @relation("RequestRequester")
+  delegationsGranted  FinanceDelegation[] @relation("DelegationGrantedBy")
+  delegationsReceived FinanceDelegation[] @relation("DelegationDelegate")
+  approvals           Approval[]
+  conversations       Conversation[]
+  auditLogs           AuditLog[]
+
+  @@unique([tenantId, email])
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────
+// Finance Manager Delegation Framework (Section 3.1, FR-ADM)
+// ─────────────────────────────────────────────
+
+model FinanceDelegation {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid @map("delegation_id")
+  tenantId          String    @map("tenant_id") @db.Uuid
+  grantedByAdminId  String    @map("granted_by_admin_id") @db.Uuid
+  delegateManagerId String    @map("delegate_manager_id") @db.Uuid
+  departmentScope   String    @map("department_scope") // e.g. 'Engineering', 'Marketing', 'ALL'
+  maxApprovalLimit  Decimal   @map("max_approval_limit") @db.Decimal(12, 2)
+  isActive          Boolean   @default(true) @map("is_active")
+  startTime         DateTime  @default(now()) @map("start_time") @db.Timestamptz
+  endTime           DateTime? @map("end_time") @db.Timestamptz
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  tenant          Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  grantedByAdmin  User       @relation("DelegationGrantedBy", fields: [grantedByAdminId], references: [id])
+  delegateManager User       @relation("DelegationDelegate", fields: [delegateManagerId], references: [id])
+  approvals       Approval[]
+
+  @@index([tenantId, delegateManagerId, isActive])
+  @@map("finance_delegations")
+}
+
+// ─────────────────────────────────────────────
+// Requests (RequestIntent) — Section 5.1, 9
+// ─────────────────────────────────────────────
+
+model Request {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid @map("request_id")
+  tenantId       String         @map("tenant_id") @db.Uuid
+  requesterId    String         @map("requester_id") @db.Uuid
+  channel        RequestChannel
+  rawPrompt      String         @map("raw_prompt") @db.Text
+  parsedIntent   String         @map("parsed_intent")
+  status         RequestStatus  @default(DRAFT)
+  attachmentUrls Json           @default("[]") @map("attachment_urls")
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz
+
+  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  requester User            @relation("RequestRequester", fields: [requesterId], references: [id])
+  attachments    Attachment[]
+  executionSteps ExecutionStep[]
+  policyCitations PolicyCitation[]
+  approvals      Approval[]
+  messages       Message[]
+
+  @@index([tenantId, status])
+  @@map("requests")
+}
+
+// ─────────────────────────────────────────────
+// Slack Attachment Ingestion Engine — Section 5, FR-SLK
+// ─────────────────────────────────────────────
+
+model Attachment {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  requestId      String           @map("request_id") @db.Uuid
+  source         AttachmentSource @default(slack)
+  slackFileId    String?          @map("slack_file_id")
+  urlPrivateDownload String?      @map("url_private_download")
+  fileName       String?          @map("file_name")
+  mimeType       String?          @map("mime_type")
+  merchantName   String?          @map("merchant_name")
+  totalAmount    Decimal?         @map("total_amount") @db.Decimal(12, 2)
+  currency       String?          @default("USD")
+  lineItems      Json?            @map("line_items")
+  taxId          String?          @map("tax_id")
+  documentDate   DateTime?        @map("document_date") @db.Date
+  ocrRawText     String?          @map("ocr_raw_text") @db.Text
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz
+
+  request Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+  @@map("attachments")
+}
+
+// ─────────────────────────────────────────────
+// AI Assistant Interface — Live Execution Timeline (FR-UI-002)
+// ─────────────────────────────────────────────
+
+model ExecutionStep {
+  id            String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  requestId     String               @map("request_id") @db.Uuid
+  stepName      String               @map("step_name") // e.g. "Checking Policy...", "Awaiting Finance Approval"
+  status        ExecutionStepStatus  @default(PENDING)
+  sequenceOrder Int                  @map("sequence_order")
+  startedAt     DateTime?            @map("started_at") @db.Timestamptz
+  completedAt   DateTime?            @map("completed_at") @db.Timestamptz
+  metadata      Json?
+
+  request Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId, sequenceOrder])
+  @@map("execution_steps")
+}
+
+// ─────────────────────────────────────────────
+// RAG Policy Citation — Context & Citation Viewer (FR-UI-003)
+// ─────────────────────────────────────────────
+
+model PolicyDocument {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  title     String
+  sourceUrl String?  @map("source_url")
+  content   String   @db.Text
+  version   String   @default("1.0")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  citations PolicyCitation[]
+
+  @@index([tenantId])
+  @@map("policy_documents")
+}
+
+model PolicyCitation {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  requestId        String   @map("request_id") @db.Uuid
+  policyDocumentId String   @map("policy_document_id") @db.Uuid
+  clauseSnippet    String   @map("clause_snippet") @db.Text
+  relevanceScore   Decimal? @map("relevance_score") @db.Decimal(5, 4)
+  citedAt          DateTime @default(now()) @map("cited_at") @db.Timestamptz
+
+  request        Request        @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  policyDocument PolicyDocument @relation(fields: [policyDocumentId], references: [id])
+
+  @@index([requestId])
+  @@map("policy_citations")
+}
+
+// ─────────────────────────────────────────────
+// Approvals — Manager & Delegated Finance Approver actions
+// ─────────────────────────────────────────────
+
+model Approval {
+  id                  String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  requestId           String           @map("request_id") @db.Uuid
+  approverId          String           @map("approver_id") @db.Uuid
+  decision            ApprovalDecision @default(PENDING)
+  decisionReason      String?          @map("decision_reason") @db.Text
+  spendingAmount      Decimal?         @map("spending_amount") @db.Decimal(12, 2)
+  isDelegatedApproval Boolean          @default(false) @map("is_delegated_approval")
+  delegationId        String?          @map("delegation_id") @db.Uuid
+  decidedAt           DateTime?        @map("decided_at") @db.Timestamptz
+  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz
+
+  request    Request            @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  approver   User               @relation(fields: [approverId], references: [id])
+  delegation FinanceDelegation? @relation(fields: [delegationId], references: [id])
+
+  @@index([requestId])
+  @@map("approvals")
+}
+
+// ─────────────────────────────────────────────
+// Conversational Command Canvas — multi-turn state (FR-UI-001)
+// ─────────────────────────────────────────────
+
+model Conversation {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  title     String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@index([tenantId, userId])
+  @@map("conversations")
+}
+
+model Message {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conversationId String      @map("conversation_id") @db.Uuid
+  role           MessageRole
+  content        String      @db.Text
+  requestId      String?     @map("request_id") @db.Uuid
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  request      Request?     @relation(fields: [requestId], references: [id])
+
+  @@index([conversationId])
+  @@map("messages")
+}
+
+// ─────────────────────────────────────────────
+// Audit Trail — FR-ADM-003
+// ─────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  actorId    String?  @map("actor_id") @db.Uuid
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id") @db.Uuid
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  actor  User?  @relation(fields: [actorId], references: [id])
+
+  @@index([tenantId, entityType, entityId])
+  @@map("audit_logs")
+}

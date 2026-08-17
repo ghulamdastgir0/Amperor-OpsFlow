@@ -1,0 +1,19 @@
+{
+  "name": "amperor-opsflow",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AI Corporate Operations Agent - Enterprise Autonomous Workflow Orchestration & Exception Resolution Engine",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev:backend": "npm run start:dev --workspace=backend",
+    "dev:frontend": "npm run dev --workspace=frontend",
+    "build:backend": "npm run build --workspace=backend",
+    "build:frontend": "npm run build --workspace=frontend",
+    "prisma:generate": "npm run prisma:generate --workspace=backend",
+    "prisma:migrate": "npm run prisma:migrate --workspace=backend",
+    "prisma:studio": "npm run prisma:studio --workspace=backend"
+  }
+}
