@@ -1,16 +1,37 @@
+import { BookOpen, ScrollText } from "lucide-react";
 import type { PolicyCitation } from "@/lib/types";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 export function CitationDrawer({ citations }: { citations: PolicyCitation[] }) {
   if (citations.length === 0) {
-    return <p className="text-sm opacity-60">No policy citations for this request.</p>;
+    return (
+      <EmptyState
+        icon={ScrollText}
+        title="No policy citations"
+        description="This request wasn't matched against any policy documents."
+      />
+    );
   }
 
   return (
     <ul className="flex flex-col gap-3">
       {citations.map((citation) => (
-        <li key={citation.id} className="border border-black/10 dark:border-white/10 rounded p-3 text-sm">
-          <p className="font-medium">{citation.policyDocument.title}</p>
-          <p className="opacity-70 mt-1">{citation.clauseSnippet}</p>
+        <li key={citation.id} className="rounded-lg border border-border bg-slate-50 p-3.5 text-sm">
+          <div className="flex items-center gap-2 font-medium text-foreground">
+            <BookOpen className="size-3.5 shrink-0 text-primary" aria-hidden />
+            {citation.policyDocument.title}
+          </div>
+          <p className="mt-1.5 border-l-2 border-indigo-200 pl-3 text-muted">{citation.clauseSnippet}</p>
+          {citation.policyDocument.sourceUrl && (
+            <a
+              href={citation.policyDocument.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 inline-block text-xs font-medium text-primary hover:underline"
+            >
+              View source
+            </a>
+          )}
         </li>
       ))}
     </ul>

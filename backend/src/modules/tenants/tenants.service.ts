@@ -23,34 +23,16 @@ export class TenantsService {
     return this.prisma.tenant.update({ where: { id: tenantId }, data: dto });
   }
 
-  // "Add to Slack" OAuth install: first install for a team creates the tenant;
-  // re-installs just refresh the stored bot credentials.
-  async upsertFromSlackInstall(input: {
-    teamId: string;
-    teamName: string;
-    botToken: string;
-    botUserId: string;
-  }) {
-    const existing = await this.findBySlackTeamId(input.teamId);
-    if (existing) {
-      const tenant = await this.prisma.tenant.update({
-        where: { id: existing.id },
-        data: {
-          slackBotToken: input.botToken,
-          slackBotUserId: input.botUserId,
-        },
-      });
-      return { tenant, isNewTenant: false };
-    }
-
-    const tenant = await this.prisma.tenant.create({
-      data: {
-        name: input.teamName,
-        slackTeamId: input.teamId,
-        slackBotToken: input.botToken,
-        slackBotUserId: input.botUserId,
-      },
+  // "Add to Slack" OAuth install stores bot credentials on a tenant that a
+  // platform admin has already created (and linked to this Slack team) —
+  // it never creates a tenant itself. See SlackOAuthService.completeInstall.
+  attachSlackBotCredentials(
+    tenantId: string,
+    input: { botToken: string; botUserId: string },
+  ) {
+    return this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: { slackBotToken: input.botToken, slackBotUserId: input.botUserId },
     });
-    return { tenant, isNewTenant: true };
   }
 }

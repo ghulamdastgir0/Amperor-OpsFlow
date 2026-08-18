@@ -80,8 +80,13 @@ export class SlackOAuthService {
     return `https://slack.com/openid/connect/authorize?${params.toString()}`;
   }
 
-  // "Add to Slack": first install creates the Tenant + its first SYSTEM_ADMIN
-  // (the installer). Re-installs just refresh the stored bot token.
+  // "Add to Slack": only works for a tenant a platform admin has already
+  // created and linked to this Slack team (POST /platform/tenants, then
+  // PATCH /tenants/slack-config once the tenant has its first admin — or set
+  // directly by the platform admin). This never creates a tenant. The first
+  // person to install into a provisioned-but-userless tenant becomes its
+  // first SYSTEM_ADMIN; re-installs (or installs by anyone else) just refresh
+  // the stored bot token / look up the installer's existing linked user.
   async completeInstall(code: string, state: string) {
     this.verifyState(state, 'slack_install');
 
@@ -110,31 +115,40 @@ export class SlackOAuthService {
       );
     }
 
-    const { tenant, isNewTenant } = await this.tenants.upsertFromSlackInstall({
-      teamId: data.team.id,
-      teamName: data.team.name,
-      botToken: data.access_token,
-      botUserId: data.bot_user_id,
-    });
+    const tenant = await this.tenants.findBySlackTeamId(data.team.id);
+    if (!tenant) {
+      throw new BadRequestException(
+        "This Slack workspace hasn't been added by a platform administrator yet.",
+      );
+    }
 
-    if (isNewTenant) {
+    const updatedTenant = await this.tenants.attachSlackBotCredentials(
+      tenant.id,
+      {
+        botToken: data.access_token,
+        botUserId: data.bot_user_id,
+      },
+    );
+
+    const existingUsers = await this.users.findAll(updatedTenant.id);
+    if (existingUsers.length === 0) {
       const profile = await this.fetchInstallerProfile(
         data.access_token,
         data.authed_user.id,
       );
-      const admin = await this.users.createSlackAdmin(tenant.id, {
+      const admin = await this.users.createSlackAdmin(updatedTenant.id, {
         email: profile.email,
         name: profile.name,
         slackUserId: data.authed_user.id,
       });
-      return { tenant, user: admin };
+      return { tenant: updatedTenant, user: admin };
     }
 
     const existingUser = await this.users.findBySlackUserId(
-      tenant.id,
+      updatedTenant.id,
       data.authed_user.id,
     );
-    return { tenant, user: existingUser };
+    return { tenant: updatedTenant, user: existingUser };
   }
 
   // "Sign in with Slack": looks up a User already linked to this Slack identity.

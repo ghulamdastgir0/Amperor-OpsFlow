@@ -31,10 +31,22 @@ Run: `npm install` at root, then `npm run dev:backend` / `npm run dev:frontend`.
   every controller derives it from `@CurrentUser()`, which reads the JWT payload set by
   `JwtAuthGuard`. No `create-*.dto.ts` has a `tenantId` field, and global `ValidationPipe({
   whitelist: true })` strips anything undeclared. Don't break this pattern when adding endpoints.
-- **Admin bootstrap**: there's no manual "create the first admin" flow. The person who completes
-  the Slack OAuth install (`GET /auth/slack/install`) automatically becomes that tenant's first
-  `SYSTEM_ADMIN` (see `SlackOAuthService.completeInstall`). `POST /users` requires an existing
-  `SYSTEM_ADMIN`, so Slack install is the only way into a fresh tenant today.
+- **Tenant creation is platform-admin-only now** (changed from the original design): tenants are no
+  longer self-service. A `PlatformAdmin` (a wholly separate identity from `User`/`Tenant` — see
+  `backend/src/modules/platform/`, bootstrapped via `npm run seed:platform-admin`) creates tenants via
+  `POST /platform/tenants`, optionally with a `slackTeamId`. `GET /auth/slack/install` no longer creates
+  a tenant — `SlackOAuthService.completeInstall` now requires a tenant already provisioned with a
+  matching `slackTeamId`, and just attaches bot credentials to it. The first person to install into a
+  provisioned-but-userless tenant becomes its first `SYSTEM_ADMIN`; `POST /users` still requires an
+  existing `SYSTEM_ADMIN` for everyone after that. The old public "Add OpsFlow to Slack" link on the
+  login page has been removed for the same reason — self-service tenant creation is intentionally gone.
+- **Platform-admin auth is a separate plane, on purpose**: its JWTs carry `kind: 'platform_admin'` and
+  no `tenantId`/`role` at all. `JwtAuthGuard` rejects a platform-admin token on any normal route and a
+  normal tenant token on any `@PlatformAdminOnly()` route (see `backend/src/common/guards/jwt-auth.guard.ts`)
+  — this is what keeps tenant isolation intact even though the platform admin can read across every
+  tenant. Don't special-case tenant-scoping checks anywhere else to give a `User` cross-tenant access;
+  route it through the platform-admin plane instead. Blocking a tenant (`Tenant.isActive`) takes effect
+  immediately — the same guard checks it on every tenant-scoped request, not just at login.
 - **Slack has two separate OAuth flows**, both in `backend/src/modules/auth/slack-oauth.service.ts`:
   - Install (`oauth.v2.access`) — gets a per-tenant bot token, stored on `Tenant.slackBotToken` /
     `slackBotUserId`. `SlackService` prefers this per-tenant token, falling back to the global

@@ -24,7 +24,7 @@ const RECURSION_LIMIT = 8;
 // and approval routing are executed deterministically by RequestsService when
 // file_request is called — this prompt only governs when/how the model calls
 // the tools and what it says.
-const SYSTEM_INSTRUCTION = `You are the OpsFlow Assistant inside Amperor OpsFlow. You help employees
+const SYSTEM_INSTRUCTION = `You are the OpsFlow Assistant inside OpsFlow. You help employees
 file operational requests (expense reimbursements, purchase requests, leave requests, and similar) and
 answer questions about company policy.
 

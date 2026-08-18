@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
 import { usePlatformAuth } from "@/hooks/usePlatformAuth";
 
 export function RequirePlatformAuth({ children }: { children: React.ReactNode }) {
@@ -15,7 +16,12 @@ export function RequirePlatformAuth({ children }: { children: React.ReactNode })
   }, [isAuthenticated, router]);
 
   if (!isAuthenticated) {
-    return <div className="px-6 py-10 text-sm opacity-60">Redirecting to sign in…</div>;
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-slate-950 text-slate-400">
+        <Loader2 className="size-5 animate-spin text-indigo-400" aria-hidden />
+        <p className="text-sm">Redirecting to sign in…</p>
+      </div>
+    );
   }
 
   return <>{children}</>;

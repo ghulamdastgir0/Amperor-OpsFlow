@@ -72,6 +72,16 @@ export interface ExecutionStep {
   completedAt?: string | null;
 }
 
+export interface PolicyDocument {
+  id: string;
+  tenantId: string;
+  title: string;
+  sourceUrl?: string | null;
+  content: string;
+  version: string;
+  createdAt: string;
+}
+
 export interface PolicyCitation {
   id: string;
   requestId: string;

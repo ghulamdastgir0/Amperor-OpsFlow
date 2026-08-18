@@ -1,12 +1,13 @@
 import { ChatCanvas } from "@/components/assistant/ChatCanvas";
+import { PageHeader } from "@/components/ui/PageHeader";
 
 export default function AssistantPage() {
   return (
-    <div className="max-w-3xl mx-auto px-6 py-10">
-      <h1 className="text-xl font-semibold mb-1">Assistant</h1>
-      <p className="text-sm opacity-70 mb-6">
-        Conversational Command Canvas — multi-turn dialogue with real-time state tracking.
-      </p>
+    <div>
+      <PageHeader
+        title="Assistant"
+        description="Conversational Command Canvas — multi-turn dialogue with real-time state tracking."
+      />
       <ChatCanvas />
     </div>
   );

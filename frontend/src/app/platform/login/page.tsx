@@ -2,8 +2,11 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { AlertCircle, ShieldCheck } from "lucide-react";
 import { platformApi } from "@/lib/api";
 import { setPlatformToken } from "@/lib/api/platform-client";
+import { Input } from "@/components/ui/Field";
+import { Button } from "@/components/ui/Button";
 
 export default function PlatformLoginPage() {
   const router = useRouter();
@@ -28,39 +31,52 @@ export default function PlatformLoginPage() {
   }
 
   return (
-    <div className="max-w-sm mx-auto px-6 py-16">
-      <h1 className="text-xl font-semibold mb-1">Platform Admin</h1>
-      <p className="text-sm opacity-70 mb-6">Manage every tenant on Amperor OpsFlow.</p>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <label className="flex flex-col gap-1 text-sm">
-          Email
-          <input
-            type="email"
-            className="border border-black/15 dark:border-white/15 rounded px-3 py-2 bg-transparent"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          Password
-          <input
-            type="password"
-            className="border border-black/15 dark:border-white/15 rounded px-3 py-2 bg-transparent"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-        </label>
-        {error && <p className="text-sm text-red-500">{error}</p>}
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="rounded bg-foreground text-background py-2 text-sm font-medium disabled:opacity-50"
-        >
-          {isSubmitting ? "Signing in…" : "Sign in"}
-        </button>
-      </form>
+    <div className="flex min-h-screen items-center justify-center bg-slate-950 px-6">
+      <div className="w-full max-w-sm">
+        <div className="mb-6 flex items-center gap-2">
+          <div className="flex size-9 items-center justify-center rounded-lg bg-indigo-500">
+            <ShieldCheck className="size-4.5 text-white" aria-hidden />
+          </div>
+          <div>
+            <p className="font-heading text-base font-semibold text-white">Platform Admin</p>
+            <p className="text-xs text-slate-400">Manage every tenant on OpsFlow</p>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4 rounded-xl border border-white/10 bg-slate-900 p-6">
+          <div className="[&_label]:text-slate-200 [&_input]:border-white/10 [&_input]:bg-slate-950 [&_input]:text-white [&_input::placeholder]:text-slate-500">
+            <Input
+              label="Email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="admin@opsflow.dev"
+              required
+            />
+          </div>
+          <div className="[&_label]:text-slate-200 [&_input]:border-white/10 [&_input]:bg-slate-950 [&_input]:text-white">
+            <Input
+              label="Password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              required
+            />
+          </div>
+
+          {error && (
+            <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-sm text-red-300">
+              <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <Button type="submit" isLoading={isSubmitting} className="w-full">
+            {isSubmitting ? "Signing in…" : "Sign in"}
+          </Button>
+        </form>
+      </div>
     </div>
   );
 }
