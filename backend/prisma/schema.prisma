@@ -71,11 +71,16 @@ enum AttachmentSource {
 // ─────────────────────────────────────────────
 
 model Tenant {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name        String
-  slackTeamId String?  @map("slack_team_id")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  slackTeamId String? @map("slack_team_id")
+  // Per-workspace bot credentials, captured during the "Add to Slack" OAuth install.
+  slackBotToken  String? @map("slack_bot_token")
+  slackBotUserId String? @map("slack_bot_user_id")
+  // Channel where every message is treated as a query — no @mention required.
+  slackQueryChannelId String?  @map("slack_query_channel_id")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   users              User[]
   requests           Request[]

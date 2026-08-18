@@ -1,8 +1,10 @@
 import { Body, Controller, HttpCode, Post } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { Public } from '../../common/decorators/public.decorator';
 import { SlackEventDto } from './dto/slack-event.dto';
 import { SlackService } from './slack.service';
 
+@ApiTags('Slack')
 @Controller('slack')
 export class SlackController {
   constructor(private readonly slackService: SlackService) {}

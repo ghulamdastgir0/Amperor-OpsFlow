@@ -1,6 +1,9 @@
 import axios, { AxiosError } from 'axios';
 
-const AUTH_TOKEN_KEY = 'opsflow_access_token';
+export const AUTH_TOKEN_KEY = 'opsflow_access_token';
+// localStorage writes don't fire a 'storage' event in the same tab that made them,
+// so useAuth() also listens for this to react to login/logout immediately.
+export const AUTH_CHANGE_EVENT = 'opsflow-auth-change';
 
 export const apiClient = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1',
@@ -22,6 +25,7 @@ apiClient.interceptors.response.use(
   (error: AxiosError) => {
     if (error.response?.status === 401 && typeof window !== 'undefined') {
       window.localStorage.removeItem(AUTH_TOKEN_KEY);
+      window.dispatchEvent(new Event(AUTH_CHANGE_EVENT));
       // Hard redirect: this runs outside the React tree, so useRouter() isn't available here.
       // eslint-disable-next-line @next/next/no-location-assign-relative-destination
       window.location.href = '/login';
@@ -33,11 +37,13 @@ apiClient.interceptors.response.use(
 export function setAuthToken(token: string) {
   if (typeof window !== 'undefined') {
     window.localStorage.setItem(AUTH_TOKEN_KEY, token);
+    window.dispatchEvent(new Event(AUTH_CHANGE_EVENT));
   }
 }
 
 export function clearAuthToken() {
   if (typeof window !== 'undefined') {
     window.localStorage.removeItem(AUTH_TOKEN_KEY);
+    window.dispatchEvent(new Event(AUTH_CHANGE_EVENT));
   }
 }

@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
@@ -6,6 +7,8 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CreatePolicyDocumentDto } from './dto/create-policy-document.dto';
 import { PoliciesService } from './policies.service';
 
+@ApiTags('Policies')
+@ApiBearerAuth('access-token')
 @Controller('policies')
 export class PoliciesController {
   constructor(private readonly policiesService: PoliciesService) {}
