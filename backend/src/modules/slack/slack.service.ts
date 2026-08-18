@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
-import { RequestChannel, RequestStatus } from '@prisma/client';
+import { RequestChannel, RequestStatus, Tenant } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TenantsService } from '../tenants/tenants.service';
 import { AssistantService } from '../assistant/assistant.service';
@@ -21,7 +21,8 @@ interface SlackAuthTestResponse {
 @Injectable()
 export class SlackService {
   private readonly logger = new Logger(SlackService.name);
-  private botUserId: string | undefined;
+  // Fallback for the bot user id when a tenant hasn't stored one via OAuth install.
+  private fallbackBotUserId: string | undefined;
 
   constructor(
     private readonly httpService: HttpService,
@@ -49,6 +50,12 @@ export class SlackService {
       return;
     }
 
+    const botToken = this.resolveBotToken(tenant);
+    if (!botToken) {
+      this.logger.warn(`No bot token available for tenant ${tenant.id}`);
+      return;
+    }
+
     if (!this.shouldProcessEvent(event, tenant.slackQueryChannelId)) return;
 
     const requesterId = await this.resolveRequesterId(tenant.id, event.user);
@@ -59,7 +66,7 @@ export class SlackService {
       return;
     }
 
-    const text = await this.stripBotMention(event.text ?? '');
+    const text = await this.stripBotMention(event.text ?? '', tenant, botToken);
     const threadTs = event.thread_ts ?? event.ts;
 
     if (event.files?.length) {
@@ -75,11 +82,12 @@ export class SlackService {
       });
 
       for (const file of event.files) {
-        await this.ingestFile(request.id, file);
+        await this.ingestFile(botToken, request.id, file);
       }
 
       if (event.channel) {
         await this.postMessage(
+          botToken,
           event.channel,
           `Got it — I'm processing your request (ref \`${request.id}\`).`,
           threadTs,
@@ -96,9 +104,13 @@ export class SlackService {
     });
     const reply = result.messages[result.messages.length - 1];
     if (event.channel && reply) {
-      await this.postMessage(event.channel, reply.content, threadTs);
+      await this.postMessage(botToken, event.channel, reply.content, threadTs);
     }
     return result;
+  }
+
+  private resolveBotToken(tenant: Tenant): string | undefined {
+    return tenant.slackBotToken ?? this.config.get<string>('slack.botToken');
   }
 
   private shouldProcessEvent(
@@ -113,16 +125,23 @@ export class SlackService {
     return false;
   }
 
-  private async stripBotMention(text: string): Promise<string> {
-    const botUserId = await this.getBotUserId();
+  private async stripBotMention(
+    text: string,
+    tenant: Tenant,
+    botToken: string,
+  ): Promise<string> {
+    const botUserId =
+      tenant.slackBotUserId ?? (await this.getFallbackBotUserId(botToken));
     if (!botUserId) return text.trim();
     return text.replace(new RegExp(`<@${botUserId}>`, 'g'), '').trim();
   }
 
-  private async getBotUserId(): Promise<string | undefined> {
-    if (this.botUserId) return this.botUserId;
-    const botToken = this.config.get<string>('slack.botToken');
-    if (!botToken) return undefined;
+  // Only used for the global fallback token (tenants installed via OAuth
+  // already have their bot_user_id stored on Tenant.slackBotUserId).
+  private async getFallbackBotUserId(
+    botToken: string,
+  ): Promise<string | undefined> {
+    if (this.fallbackBotUserId) return this.fallbackBotUserId;
 
     const response = await firstValueFrom(
       this.httpService.post<SlackAuthTestResponse>(
@@ -131,12 +150,16 @@ export class SlackService {
         { headers: { Authorization: `Bearer ${botToken}` } },
       ),
     );
-    this.botUserId = response.data.user_id;
-    return this.botUserId;
+    this.fallbackBotUserId = response.data.user_id;
+    return this.fallbackBotUserId;
   }
 
-  private async postMessage(channel: string, text: string, threadTs?: string) {
-    const botToken = this.config.get<string>('slack.botToken');
+  private async postMessage(
+    botToken: string,
+    channel: string,
+    text: string,
+    threadTs?: string,
+  ) {
     await firstValueFrom(
       this.httpService.post(
         'https://slack.com/api/chat.postMessage',
@@ -147,8 +170,11 @@ export class SlackService {
   }
 
   // Step 3: Secure Download via bot token
-  private async ingestFile(requestId: string, file: SlackFileDto) {
-    const botToken = this.config.get<string>('slack.botToken');
+  private async ingestFile(
+    botToken: string,
+    requestId: string,
+    file: SlackFileDto,
+  ) {
     const response = await firstValueFrom(
       this.httpService.get<ArrayBuffer>(file.url_private_download, {
         headers: { Authorization: `Bearer ${botToken}` },

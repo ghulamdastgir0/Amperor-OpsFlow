@@ -3,25 +3,39 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { authApi, setAuthToken } from "@/lib/api";
+import { useQueryParam } from "@/hooks/useQueryParam";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
+
+const SLACK_ERROR_MESSAGES: Record<string, string> = {
+  slack_not_linked:
+    "That Slack account isn't linked to any user here yet. Ask your admin to invite you.",
+  slack_login_failed: "Sign-in with Slack failed. Please try again.",
+  slack_install_failed: "Connecting the Slack workspace failed. Please try again.",
+};
 
 export default function LoginPage() {
   const router = useRouter();
   const [tenantId, setTenantId] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const errorCode = useQueryParam("error");
+  const error =
+    submitError ?? (errorCode ? (SLACK_ERROR_MESSAGES[errorCode] ?? "Something went wrong. Please try again.") : null);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    setError(null);
+    setSubmitError(null);
     setIsSubmitting(true);
     try {
       const result = await authApi.login({ tenantId, email, password });
       setAuthToken(result.accessToken);
       router.push("/assistant");
     } catch {
-      setError("Invalid credentials. Please try again.");
+      setSubmitError("Invalid credentials. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -69,6 +83,27 @@ export default function LoginPage() {
           {isSubmitting ? "Signing in…" : "Sign in"}
         </button>
       </form>
+
+      <div className="flex items-center gap-3 my-6">
+        <div className="h-px flex-1 bg-black/10 dark:bg-white/10" />
+        <span className="text-xs opacity-50">or</span>
+        <div className="h-px flex-1 bg-black/10 dark:bg-white/10" />
+      </div>
+
+      <a
+        href={`${API_URL}/auth/slack/login`}
+        className="block text-center rounded border border-black/15 dark:border-white/15 py-2 text-sm font-medium hover:bg-black/5 dark:hover:bg-white/5"
+      >
+        Continue with Slack
+      </a>
+
+      <p className="text-xs text-center opacity-60 mt-4">
+        New team?{" "}
+        <a href={`${API_URL}/auth/slack/install`} className="underline">
+          Add OpsFlow to Slack
+        </a>{" "}
+        to get started.
+      </p>
     </div>
   );
 }

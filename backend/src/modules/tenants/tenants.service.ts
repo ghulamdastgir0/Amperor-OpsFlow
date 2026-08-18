@@ -29,4 +29,35 @@ export class TenantsService {
     await this.findOne(id);
     return this.prisma.tenant.update({ where: { id }, data: dto });
   }
+
+  // "Add to Slack" OAuth install: first install for a team creates the tenant;
+  // re-installs just refresh the stored bot credentials.
+  async upsertFromSlackInstall(input: {
+    teamId: string;
+    teamName: string;
+    botToken: string;
+    botUserId: string;
+  }) {
+    const existing = await this.findBySlackTeamId(input.teamId);
+    if (existing) {
+      const tenant = await this.prisma.tenant.update({
+        where: { id: existing.id },
+        data: {
+          slackBotToken: input.botToken,
+          slackBotUserId: input.botUserId,
+        },
+      });
+      return { tenant, isNewTenant: false };
+    }
+
+    const tenant = await this.prisma.tenant.create({
+      data: {
+        name: input.teamName,
+        slackTeamId: input.teamId,
+        slackBotToken: input.botToken,
+        slackBotUserId: input.botUserId,
+      },
+    });
+    return { tenant, isNewTenant: true };
+  }
 }

@@ -1,8 +1,16 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
+import { Role } from '@prisma/client';
 import { UsersService } from '../users/users.service';
 import { LoginDto } from './dto/login.dto';
+
+interface Authenticatable {
+  id: string;
+  tenantId: string;
+  email: string;
+  role: Role;
+}
 
 @Injectable()
 export class AuthService {
@@ -23,16 +31,20 @@ export class AuthService {
     if (!passwordMatches)
       throw new UnauthorizedException('Invalid credentials');
 
+    return this.buildAuthResult(user);
+  }
+
+  buildAuthResult(user: Authenticatable) {
     const payload = {
       userId: user.id,
       tenantId: user.tenantId,
       email: user.email,
       role: user.role,
     };
+    return { accessToken: this.jwtService.sign(payload), user: payload };
+  }
 
-    return {
-      accessToken: this.jwtService.sign(payload),
-      user: payload,
-    };
+  issueToken(user: Authenticatable) {
+    return this.buildAuthResult(user).accessToken;
   }
 }

@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
+import { Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 
@@ -49,6 +50,28 @@ export class UsersService {
   async findByEmail(tenantId: string, email: string) {
     return this.prisma.user.findUnique({
       where: { tenantId_email: { tenantId, email } },
+    });
+  }
+
+  async findBySlackUserId(tenantId: string, slackUserId: string) {
+    return this.prisma.user.findFirst({ where: { tenantId, slackUserId } });
+  }
+
+  // Used by the "Add to Slack" OAuth install — the installer becomes the
+  // tenant's first admin and authenticates via Slack only (no password).
+  async createSlackAdmin(
+    tenantId: string,
+    data: { email: string; name: string; slackUserId: string },
+  ) {
+    return this.prisma.user.create({
+      data: {
+        tenantId,
+        email: data.email,
+        name: data.name,
+        slackUserId: data.slackUserId,
+        role: Role.SYSTEM_ADMIN,
+        passwordHash: null,
+      },
     });
   }
 
