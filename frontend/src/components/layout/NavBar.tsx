@@ -9,9 +9,14 @@ export function NavBar() {
   const router = useRouter();
   const { user, isAuthenticated } = useAuth();
 
+  const FINANCE_ROLES = ["SYSTEM_ADMIN", "FINANCE_APPROVER", "DEPARTMENT_MANAGER", "TEAM_LEAD"];
+
   const links = [
     { href: "/assistant", label: "Assistant" },
     { href: "/requests", label: "Requests" },
+    ...(user && FINANCE_ROLES.includes(user.role)
+      ? [{ href: "/finance", label: "Finance" }]
+      : []),
     ...(user?.role === "SYSTEM_ADMIN"
       ? [{ href: "/admin/delegations", label: "Finance Delegations" }]
       : []),

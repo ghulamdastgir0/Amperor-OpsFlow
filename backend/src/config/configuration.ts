@@ -20,5 +20,7 @@ export default () => ({
   },
   llm: {
     apiKey: process.env.LLM_API_KEY,
+    model: process.env.LLM_MODEL ?? 'gemini-2.5-flash',
+    embeddingModel: process.env.LLM_EMBEDDING_MODEL ?? 'gemini-embedding-001',
   },
 });

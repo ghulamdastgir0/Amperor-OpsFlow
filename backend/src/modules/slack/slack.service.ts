@@ -6,6 +6,7 @@ import { RequestChannel, RequestStatus, Tenant } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TenantsService } from '../tenants/tenants.service';
 import { AssistantService } from '../assistant/assistant.service';
+import { RequestsService } from '../requests/requests.service';
 import { OcrService } from './ocr.service';
 import {
   SlackEventDto,
@@ -31,6 +32,7 @@ export class SlackService {
     private readonly tenants: TenantsService,
     private readonly ocr: OcrService,
     private readonly assistant: AssistantService,
+    private readonly requests: RequestsService,
   ) {}
 
   // Ingestion Pipeline Sequence (SRS Section 5.1) + query routing:
@@ -94,7 +96,18 @@ export class SlackService {
         );
       }
 
-      return request;
+      const routed = await this.requests.runPipeline(tenant.id, request.id);
+
+      if (event.channel) {
+        await this.postMessage(
+          botToken,
+          event.channel,
+          this.describeRoutedStatus(routed.status),
+          threadTs,
+        );
+      }
+
+      return routed;
     }
 
     // No attachment: route the message through the same conversational
@@ -107,6 +120,19 @@ export class SlackService {
       await this.postMessage(botToken, event.channel, reply.content, threadTs);
     }
     return result;
+  }
+
+  private describeRoutedStatus(status: RequestStatus): string {
+    switch (status) {
+      case RequestStatus.COMPLETED:
+        return 'No approval needed — this one is already marked complete.';
+      case RequestStatus.PENDING_MANAGER_APPROVAL:
+        return 'Routed to a manager for approval.';
+      case RequestStatus.ESCALATED:
+        return 'Escalated to an admin — no finance delegate currently covers this amount.';
+      default:
+        return `Status: ${status}.`;
+    }
   }
 
   private resolveBotToken(tenant: Tenant): string | undefined {

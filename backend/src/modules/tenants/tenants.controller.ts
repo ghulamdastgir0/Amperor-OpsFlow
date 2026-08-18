@@ -1,9 +1,9 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Patch } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
-import { Public } from '../../common/decorators/public.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { CreateTenantDto } from './dto/create-tenant.dto';
 import { UpdateSlackConfigDto } from './dto/update-slack-config.dto';
 import { TenantsService } from './tenants.service';
 
@@ -13,32 +13,22 @@ import { TenantsService } from './tenants.service';
 export class TenantsController {
   constructor(private readonly tenantsService: TenantsService) {}
 
-  @Post()
-  @Public()
-  create(@Body() dto: CreateTenantDto) {
-    return this.tenantsService.create(dto);
-  }
-
-  @Get()
+  // Every route here operates on the caller's own tenant only — tenantId is
+  // never accepted as a path/body param (see AGENTS.md tenant-isolation note).
+  @Get('me')
   @Roles(Role.SYSTEM_ADMIN)
-  findAll() {
-    return this.tenantsService.findAll();
-  }
-
-  @Get(':id')
-  @Roles(Role.SYSTEM_ADMIN)
-  findOne(@Param('id') id: string) {
-    return this.tenantsService.findOne(id);
+  findMine(@CurrentUser() user: AuthenticatedUser) {
+    return this.tenantsService.findOne(user.tenantId);
   }
 
   // Sets which Slack team maps to this tenant, and the "dedicated query channel"
   // where every message is treated as a query without needing an @mention.
-  @Patch(':id/slack-config')
+  @Patch('slack-config')
   @Roles(Role.SYSTEM_ADMIN)
   updateSlackConfig(
-    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: UpdateSlackConfigDto,
   ) {
-    return this.tenantsService.updateSlackConfig(id, dto);
+    return this.tenantsService.updateSlackConfig(user.tenantId, dto);
   }
 }

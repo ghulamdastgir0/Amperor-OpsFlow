@@ -16,6 +16,9 @@ import { AssistantModule } from './modules/assistant/assistant.module';
 import { SlackModule } from './modules/slack/slack.module';
 import { PoliciesModule } from './modules/policies/policies.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
+import { LlmModule } from './modules/llm/llm.module';
+import { BudgetsModule } from './modules/budgets/budgets.module';
+import { PlatformAdminModule } from './modules/platform/platform-admin.module';
 
 @Module({
   imports: [
@@ -30,6 +33,9 @@ import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
     SlackModule,
     PoliciesModule,
     AuditLogsModule,
+    LlmModule,
+    BudgetsModule,
+    PlatformAdminModule,
   ],
   controllers: [AppController],
   providers: [

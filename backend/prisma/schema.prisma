@@ -73,6 +73,7 @@ enum AttachmentSource {
 model Tenant {
   id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name        String
+  isActive    Boolean @default(true) @map("is_active")
   slackTeamId String? @map("slack_team_id")
   // Per-workspace bot credentials, captured during the "Add to Slack" OAuth install.
   slackBotToken  String? @map("slack_bot_token")
@@ -88,6 +89,7 @@ model Tenant {
   policyDocuments    PolicyDocument[]
   auditLogs          AuditLog[]
   conversations      Conversation[]
+  budgets            Budget[]
 
   @@map("tenants")
 }
@@ -118,6 +120,19 @@ model User {
   @@map("users")
 }
 
+// Platform-level admin — deliberately NOT a User/Tenant relation. Sits above
+// tenant isolation entirely (see JwtAuthGuard's `kind: 'platform_admin'`
+// claim check) rather than special-casing the per-tenant guard/query pattern
+// every other identity in this schema follows.
+model PlatformAdmin {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("platform_admins")
+}
+
 // ─────────────────────────────────────────────
 // Finance Manager Delegation Framework (Section 3.1, FR-ADM)
 // ─────────────────────────────────────────────
@@ -141,6 +156,23 @@ model FinanceDelegation {
 
   @@index([tenantId, delegateManagerId, isActive])
   @@map("finance_delegations")
+}
+
+// Department budget pool — allocated vs. actual spend (computed from Requests),
+// distinct from FinanceDelegation.maxApprovalLimit which is an approval ceiling,
+// not a budget.
+model Budget {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  departmentScope String   @map("department_scope") // e.g. 'Engineering', 'ALL'
+  allocatedAmount Decimal  @map("allocated_amount") @db.Decimal(12, 2)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, departmentScope])
+  @@map("budgets")
 }
 
 // ─────────────────────────────────────────────
@@ -232,9 +264,25 @@ model PolicyDocument {
 
   tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   citations PolicyCitation[]
+  chunks    PolicyChunk[]
 
   @@index([tenantId])
   @@map("policy_documents")
+}
+
+// Chunked + embedded policy content for RAG retrieval (SRS Section 5.1, step 5).
+model PolicyChunk {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  policyDocumentId String   @map("policy_document_id") @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  content          String   @db.Text
+  embedding        Json
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  policyDocument PolicyDocument @relation(fields: [policyDocumentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("policy_chunks")
 }
 
 model PolicyCitation {

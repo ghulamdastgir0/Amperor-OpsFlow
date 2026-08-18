@@ -1,0 +1,72 @@
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+} from '@nestjs/common';
+import { ApiExcludeController, ApiTags } from '@nestjs/swagger';
+import { Public } from '../../common/decorators/public.decorator';
+import { PlatformAdminOnly } from '../../common/decorators/platform-admin.decorator';
+import { CreateTenantDto } from '../tenants/dto/create-tenant.dto';
+import { PlatformLoginDto } from './dto/platform-login.dto';
+import { PlatformAdminService } from './platform-admin.service';
+
+// Platform-admin plane: entirely separate identity/auth from tenant users
+// (see JwtAuthGuard's `kind: 'platform_admin'` check) — not part of the
+// tenant-facing Swagger surface.
+@ApiTags('Platform')
+@ApiExcludeController()
+@Controller('platform')
+@PlatformAdminOnly()
+export class PlatformAdminController {
+  constructor(private readonly platformAdminService: PlatformAdminService) {}
+
+  @Public()
+  @Post('auth/login')
+  login(@Body() dto: PlatformLoginDto) {
+    return this.platformAdminService.login(dto);
+  }
+
+  @Get('tenants')
+  listTenants() {
+    return this.platformAdminService.listTenants();
+  }
+
+  @Post('tenants')
+  createTenant(@Body() dto: CreateTenantDto) {
+    return this.platformAdminService.createTenant(dto);
+  }
+
+  @Patch('tenants/:id/block')
+  block(@Param('id') id: string) {
+    return this.platformAdminService.setActive(id, false);
+  }
+
+  @Patch('tenants/:id/unblock')
+  unblock(@Param('id') id: string) {
+    return this.platformAdminService.setActive(id, true);
+  }
+
+  @Delete('tenants/:id')
+  deleteTenant(@Param('id') id: string) {
+    return this.platformAdminService.deleteTenant(id);
+  }
+
+  @Get('tenants/:id/users')
+  getTenantUsers(@Param('id') id: string) {
+    return this.platformAdminService.getTenantUsers(id);
+  }
+
+  @Get('tenants/:id/requests')
+  getTenantRequests(@Param('id') id: string) {
+    return this.platformAdminService.getTenantRequests(id);
+  }
+
+  @Get('tenants/:id/budgets')
+  getTenantBudgets(@Param('id') id: string) {
+    return this.platformAdminService.getTenantBudgetDashboard(id);
+  }
+}

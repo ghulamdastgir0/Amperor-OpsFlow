@@ -12,6 +12,11 @@ const sections = [
     description: "Review pending requests, inspect attached Slack invoices/receipts, and take action.",
   },
   {
+    href: "/finance",
+    title: "Finance Dashboard",
+    description: "Department budgets, spend analytics, and transaction history.",
+  },
+  {
     href: "/admin/delegations",
     title: "Finance Manager Delegation",
     description: "Grant, delegate, or time-bound Finance Approval authority to Managers and Leads.",
@@ -27,7 +32,7 @@ export default function Home() {
           Enterprise Autonomous Workflow Orchestration &amp; Exception Resolution Engine
         </p>
       </div>
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2">
         {sections.map((section) => (
           <Link
             key={section.href}
