@@ -8,8 +8,6 @@
       "Bash(npx eslint *)",
       "Bash(netstat -ano)",
       "Bash(node -e ' *)",
-      "Bash(echo eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJkYzcxYWU1NC1iM2EzLTQwY2MtYmMwMC0yNTRhYjFiODhiZjkiLCJ0ZW5hbnRJZCI6IjMzOGNiNGQ3LWY1YjgtNGU0Ni1iNzM4LTQ0YTQ5MDJiYzFmNSIsImVtYWlsIjoiZ2h1bGFtZGFzdGdpcjEyOTA1QGdtYWlsLmNvbSIsInJvbGUiOiJTWVNURU1fQURNSU4iLCJpYXQiOjE3ODcwNDcxODUsImV4cCI6MTc4NzA1NDM4NX0.RYrvAWPeh_ifKRnzXcyXOGox7n0WorZEGOG6HOchaqo)",
-      "Bash(curl -s -X POST http://localhost:4000/api/v1/policies -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJkYzcxYWU1NC1iM2EzLTQwY2MtYmMwMC0yNTRhYjFiODhiZjkiLCJ0ZW5hbnRJZCI6IjMzOGNiNGQ3LWY1YjgtNGU0Ni1iNzM4LTQ0YTQ5MDJiYzFmNSIsImVtYWlsIjoiZ2h1bGFtZGFzdGdpcjEyOTA1QGdtYWlsLmNvbSIsInJvbGUiOiJTWVNURU1fQURNSU4iLCJpYXQiOjE3ODcwNDcxODUsImV4cCI6MTc4NzA1NDM4NX0.RYrvAWPeh_ifKRnzXcyXOGox7n0WorZEGOG6HOchaqo' -H 'Content-Type: application/json' -d '{\"title\":\"Travel & Expense Policy\",\"content\":\"Employees may expense client meals up to $75 per person without prior approval.\\\\n\\\\nAll international travel over $1000 requires Department Manager pre-approval before booking.\\\\n\\\\nReceipts are required for any expense over $25.\"}')",
       "Read(//tmp/**)",
       "Bash(curl -s -X POST http://localhost:4000/api/v1/assistant/messages -H 'Authorization: Bearer __CMDSUB_OUTPUT__' -H 'Content-Type: application/json' -d '{\"content\":\"What is the client meal expense limit without approval?\"}')",
       "Bash(curl -s -X POST http://localhost:4000/api/v1/assistant/messages -H 'Authorization: Bearer __CMDSUB_OUTPUT__' -H 'Content-Type: application/json' -d '{\"content\":\"I need to expense a $50 client lunch with a prospective customer yesterday.\"}')",
