@@ -7,6 +7,7 @@ import { usePlatformAuth } from "@/hooks/usePlatformAuth";
 import { clearPlatformToken } from "@/lib/api/platform-client";
 import { PlatformProfileProvider, usePlatformProfile } from "./PlatformProfileContext";
 import { Avatar } from "@/components/ui/Avatar";
+import { CompactThemeToggle } from "@/components/ui/ThemeToggle";
 import { cn } from "@/lib/cn";
 
 const NAV_ITEMS = [
@@ -28,18 +29,18 @@ function PlatformHeader() {
   const items = NAV_ITEMS.filter((item) => !item.globalOnly || profile?.isGlobalAdmin);
 
   return (
-    <header className="flex items-center gap-3 border-b border-white/10 bg-slate-900 px-8 py-4">
-      <Link href="/platform" className="flex items-center gap-2">
-        <div className="flex size-7 items-center justify-center rounded-md bg-indigo-500">
-          <ShieldCheck className="size-4 text-white" aria-hidden />
+    <header className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-surface px-4 py-3 shadow-sm sm:gap-3 sm:px-8 sm:py-3.5">
+      <Link href="/platform" className="flex shrink-0 items-center gap-2">
+        <div className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
+          <ShieldCheck className="size-4" aria-hidden />
         </div>
-        <span className="font-heading text-sm font-semibold text-white">OpsFlow</span>
+        <span className="font-heading text-sm font-semibold text-foreground">OpsFlow</span>
       </Link>
-      <span className="rounded-full bg-indigo-500/15 px-2.5 py-0.5 text-xs font-medium text-indigo-300 ring-1 ring-inset ring-indigo-400/30">
+      <span className="hidden shrink-0 rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-primary ring-1 ring-inset ring-primary/20 sm:inline-block dark:bg-indigo-500/10">
         Platform Admin
       </span>
 
-      <nav className="ml-6 flex items-center gap-1">
+      <nav className="flex items-center gap-1 sm:ml-6">
         {items.map((item) => {
           const isActive = item.exact ? pathname === item.href : pathname.startsWith(item.href);
           const Icon = item.icon;
@@ -47,37 +48,46 @@ function PlatformHeader() {
             <Link
               key={item.href}
               href={item.href}
+              title={item.label}
               className={cn(
-                "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                isActive ? "bg-white/10 text-white" : "text-slate-400 hover:bg-white/5 hover:text-white",
+                "flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium transition-colors sm:px-3",
+                isActive
+                  ? "bg-indigo-50 text-primary dark:bg-indigo-500/10"
+                  : "text-muted hover:bg-slate-50 hover:text-foreground dark:hover:bg-white/5",
               )}
             >
               <Icon className="size-3.5" aria-hidden />
-              {item.label}
+              <span className="hidden sm:inline">{item.label}</span>
             </Link>
           );
         })}
       </nav>
 
-      {admin && (
-        <div className="ml-auto flex items-center gap-3">
-          <Link
-            href="/platform/profile"
-            className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-white/5"
-          >
-            <Avatar name={profile?.name || admin.email} className="size-6 text-[10px]" />
-            <span className="text-sm text-slate-300">{profile?.name || admin.email}</span>
-          </Link>
-          <button
-            type="button"
-            onClick={handleSignOut}
-            className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-slate-400 hover:bg-white/5 hover:text-white"
-          >
-            <LogOut className="size-3.5" aria-hidden />
-            Sign out
-          </button>
-        </div>
-      )}
+      <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
+        <CompactThemeToggle />
+        {admin && (
+          <>
+            <div className="mx-1 hidden h-6 w-px bg-border sm:block" />
+            <Link
+              href="/platform/profile"
+              title={profile?.name || admin.email}
+              aria-label={`Profile: ${profile?.name || admin.email}`}
+              className="rounded-full transition-opacity hover:opacity-80"
+            >
+              <Avatar name={profile?.name || admin.email} className="size-8 text-xs" />
+            </Link>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              title="Sign out"
+              className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted hover:bg-slate-50 hover:text-foreground sm:px-2.5 dark:hover:bg-white/5"
+            >
+              <LogOut className="size-3.5" aria-hidden />
+              <span className="hidden sm:inline">Sign out</span>
+            </button>
+          </>
+        )}
+      </div>
     </header>
   );
 }
@@ -85,9 +95,9 @@ function PlatformHeader() {
 export function PlatformShell({ children }: { children: React.ReactNode }) {
   return (
     <PlatformProfileProvider>
-      <div className="min-h-screen bg-slate-950">
+      <div className="min-h-screen bg-background">
         <PlatformHeader />
-        <main className="mx-auto max-w-6xl px-8 py-10">{children}</main>
+        <main className="mx-auto max-w-6xl px-4 py-6 sm:px-8 sm:py-10">{children}</main>
       </div>
     </PlatformProfileProvider>
   );

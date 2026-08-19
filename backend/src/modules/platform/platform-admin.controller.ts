@@ -15,6 +15,7 @@ import { CreateTenantDto } from '../tenants/dto/create-tenant.dto';
 import { PlatformLoginDto } from './dto/platform-login.dto';
 import { CreatePlatformAdminDto } from './dto/create-platform-admin.dto';
 import { UpdatePlatformAdminProfileDto } from './dto/update-platform-admin-profile.dto';
+import { CreateTenantAdminDto } from './dto/create-tenant-admin.dto';
 import { PlatformAdminService } from './platform-admin.service';
 
 // Platform-admin plane: entirely separate identity/auth from tenant users
@@ -43,6 +44,11 @@ export class PlatformAdminController {
     return this.platformAdminService.createTenant(dto);
   }
 
+  @Get('tenants/:id')
+  getTenant(@Param('id') id: string) {
+    return this.platformAdminService.getTenant(id);
+  }
+
   @Patch('tenants/:id/block')
   block(@Param('id') id: string) {
     return this.platformAdminService.setActive(id, false);
@@ -61,6 +67,23 @@ export class PlatformAdminController {
   @Get('tenants/:id/users')
   getTenantUsers(@Param('id') id: string) {
     return this.platformAdminService.getTenantUsers(id);
+  }
+
+  @Post('tenants/:id/admin-user')
+  createTenantAdmin(
+    @Param('id') id: string,
+    @Body() dto: CreateTenantAdminDto,
+  ) {
+    return this.platformAdminService.createTenantAdmin(id, dto);
+  }
+
+  @Delete('tenants/:id/users/:userId')
+  deleteTenantAdmin(
+    @CurrentPlatformAdmin('adminId') adminId: string,
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+  ) {
+    return this.platformAdminService.deleteTenantAdmin(adminId, id, userId);
   }
 
   @Get('tenants/:id/requests')

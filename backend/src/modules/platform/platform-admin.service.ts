@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
+import { Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { RequestsService } from '../requests/requests.service';
@@ -16,6 +17,7 @@ import { CreateTenantDto } from '../tenants/dto/create-tenant.dto';
 import { PlatformLoginDto } from './dto/platform-login.dto';
 import { CreatePlatformAdminDto } from './dto/create-platform-admin.dto';
 import { UpdatePlatformAdminProfileDto } from './dto/update-platform-admin-profile.dto';
+import { CreateTenantAdminDto } from './dto/create-tenant-admin.dto';
 
 const ADMIN_PROFILE_SELECT = {
   id: true,
@@ -25,6 +27,17 @@ const ADMIN_PROFILE_SELECT = {
   isActive: true,
   createdAt: true,
 } as const;
+
+// Bot credentials never leave this service — they're internal-only, captured
+// by SlackOAuthService.completeInstall. Every tenant response is derived
+// through this so the platform admin frontend never sees a live bot token.
+function toPlatformTenant<
+  T extends { slackBotToken: string | null; slackBotUserId: string | null },
+>(tenant: T) {
+  const { slackBotToken, slackBotUserId, ...rest } = tenant;
+  void slackBotUserId;
+  return { ...rest, slackConnected: slackBotToken != null };
+}
 
 @Injectable()
 export class PlatformAdminService {
@@ -158,29 +171,77 @@ export class PlatformAdminService {
       include: { _count: { select: { users: true, requests: true } } },
     });
     return tenants.map(({ _count, ...tenant }) => ({
-      ...tenant,
+      ...toPlatformTenant(tenant),
       userCount: _count.users,
       requestCount: _count.requests,
     }));
   }
 
-  createTenant(dto: CreateTenantDto) {
-    return this.prisma.tenant.create({ data: dto });
+  async getTenant(id: string) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id },
+      include: { _count: { select: { users: true, requests: true } } },
+    });
+    if (!tenant) throw new NotFoundException('Tenant not found');
+    const { _count, ...rest } = tenant;
+    return {
+      ...toPlatformTenant(rest),
+      userCount: _count.users,
+      requestCount: _count.requests,
+    };
+  }
+
+  async createTenant(dto: CreateTenantDto) {
+    const tenant = await this.prisma.tenant.create({ data: dto });
+    return { ...toPlatformTenant(tenant), userCount: 0, requestCount: 0 };
   }
 
   async setActive(id: string, isActive: boolean) {
     await this.requireTenant(id);
-    return this.prisma.tenant.update({ where: { id }, data: { isActive } });
+    const tenant = await this.prisma.tenant.update({
+      where: { id },
+      data: { isActive },
+    });
+    return toPlatformTenant(tenant);
   }
 
   async deleteTenant(id: string) {
     await this.requireTenant(id);
-    return this.prisma.tenant.delete({ where: { id } });
+    const tenant = await this.prisma.tenant.delete({ where: { id } });
+    return toPlatformTenant(tenant);
   }
 
   async getTenantUsers(id: string) {
     await this.requireTenant(id);
     return this.users.findAll(id);
+  }
+
+  // Lets a platform admin bootstrap a tenant's first admin directly — the
+  // only other way a tenant gets one is the "Add to Slack" OAuth installer
+  // becoming SYSTEM_ADMIN automatically, which never happens for a tenant
+  // that isn't connected to Slack.
+  async createTenantAdmin(id: string, dto: CreateTenantAdminDto) {
+    await this.requireTenant(id);
+    return this.users.create(id, { ...dto, role: Role.SYSTEM_ADMIN });
+  }
+
+  // Only covers SYSTEM_ADMIN users — regular tenant users are managed by the
+  // tenant's own admins, not the platform admin console.
+  async deleteTenantAdmin(
+    actingAdminId: string,
+    tenantId: string,
+    userId: string,
+  ) {
+    await this.requireGlobalAdmin(actingAdminId);
+    await this.requireTenant(tenantId);
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, tenantId },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    if (user.role !== Role.SYSTEM_ADMIN) {
+      throw new BadRequestException('Only a tenant admin can be removed here');
+    }
+    await this.users.remove(tenantId, userId);
   }
 
   async getTenantRequests(id: string) {

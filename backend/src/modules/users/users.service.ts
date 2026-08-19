@@ -57,6 +57,12 @@ export class UsersService {
     return this.prisma.user.findFirst({ where: { tenantId, slackUserId } });
   }
 
+  async remove(tenantId: string, id: string) {
+    const user = await this.prisma.user.findFirst({ where: { id, tenantId } });
+    if (!user) throw new NotFoundException('User not found');
+    await this.prisma.user.delete({ where: { id } });
+  }
+
   // Used by the "Add to Slack" OAuth install — the installer becomes the
   // tenant's first admin and authenticates via Slack only (no password).
   async createSlackAdmin(

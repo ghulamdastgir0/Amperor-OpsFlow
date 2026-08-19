@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useHasMounted } from "@/hooks/useHasMounted";
 import type { Role } from "@/lib/types";
 
 export function RequireAuth({
@@ -15,14 +16,19 @@ export function RequireAuth({
 }) {
   const router = useRouter();
   const { user, isAuthenticated } = useAuth();
+  const hasMounted = useHasMounted();
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    // Gate on hasMounted: isAuthenticated is forced false during SSR/first paint
+    // (no localStorage on the server) and only resolves to its real value once
+    // hasMounted flips — checking it too early would bounce an already-signed-in
+    // user to /login on every hard refresh.
+    if (hasMounted && !isAuthenticated) {
       router.replace("/login");
     }
-  }, [isAuthenticated, router]);
+  }, [hasMounted, isAuthenticated, router]);
 
-  if (!isAuthenticated) {
+  if (!hasMounted || !isAuthenticated) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-3 text-muted">
         <Loader2 className="size-5 animate-spin text-primary" aria-hidden />

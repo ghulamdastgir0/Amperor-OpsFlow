@@ -33,6 +33,11 @@ export async function createTenant(payload: { name: string; slackTeamId?: string
   return data.data;
 }
 
+export async function getTenant(id: string) {
+  const { data } = await platformApiClient.get<ApiEnvelope<PlatformTenant>>(`/platform/tenants/${id}`);
+  return data.data;
+}
+
 export async function blockTenant(id: string) {
   const { data } = await platformApiClient.patch<ApiEnvelope<PlatformTenant>>(
     `/platform/tenants/${id}/block`,
@@ -59,6 +64,24 @@ export async function getTenantUsers(id: string) {
     `/platform/tenants/${id}/users`,
   );
   return data.data;
+}
+
+export interface CreateTenantAdminPayload {
+  email: string;
+  name: string;
+  password: string;
+}
+
+export async function createTenantAdmin(tenantId: string, payload: CreateTenantAdminPayload) {
+  const { data } = await platformApiClient.post<ApiEnvelope<User>>(
+    `/platform/tenants/${tenantId}/admin-user`,
+    payload,
+  );
+  return data.data;
+}
+
+export async function deleteTenantAdmin(tenantId: string, userId: string) {
+  await platformApiClient.delete(`/platform/tenants/${tenantId}/users/${userId}`);
 }
 
 export async function getTenantRequests(id: string) {

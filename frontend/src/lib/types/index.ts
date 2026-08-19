@@ -25,6 +25,8 @@ export interface Tenant {
   id: string;
   name: string;
   slackTeamId?: string | null;
+  // True only once "Add to Slack" OAuth has actually run for this workspace.
+  slackConnected: boolean;
   createdAt: string;
 }
 
@@ -183,6 +185,8 @@ export interface PlatformTenant {
   name: string;
   isActive: boolean;
   slackTeamId?: string | null;
+  // True only once "Add to Slack" OAuth has actually run for this workspace.
+  slackConnected: boolean;
   createdAt: string;
   updatedAt: string;
   userCount: number;

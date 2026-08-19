@@ -4,6 +4,7 @@ export * as requestsApi from './requests';
 export * as delegationsApi from './delegations';
 export * as assistantApi from './assistant';
 export * as usersApi from './users';
+export * as tenantsApi from './tenants';
 export * as budgetsApi from './budgets';
 export * as platformApi from './platform';
 export * as policiesApi from './policies';

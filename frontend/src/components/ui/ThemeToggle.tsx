@@ -4,6 +4,42 @@ import { useTheme } from "next-themes";
 import { Sun, Moon, Monitor } from "lucide-react";
 import { cn } from "@/lib/cn";
 
+const CYCLE_ORDER = ["light", "dark", "system"] as const;
+const CYCLE_ICON = { light: Sun, dark: Moon, system: Monitor } as const;
+const CYCLE_LABEL = { light: "Light", dark: "Dark", system: "System" } as const;
+
+// Single-icon toggle: shows the icon for the *selected* preference (not the
+// resolved color, so "system" reads as Monitor even if that resolves to dark
+// right now) and clicking cycles light -> dark -> system -> light. Keeps a
+// single glyph on screen while still reaching every option the full
+// three-way ThemeToggle exposes.
+export function CompactThemeToggle({ className }: { className?: string }) {
+  const { theme, setTheme } = useTheme();
+
+  if (!theme) {
+    return <div className={cn("size-8 rounded-md", className)} />;
+  }
+
+  const current = (theme in CYCLE_ICON ? theme : "system") as (typeof CYCLE_ORDER)[number];
+  const next = CYCLE_ORDER[(CYCLE_ORDER.indexOf(current) + 1) % CYCLE_ORDER.length];
+  const Icon = CYCLE_ICON[current];
+
+  return (
+    <button
+      type="button"
+      title={`Theme: ${CYCLE_LABEL[current]} (click for ${CYCLE_LABEL[next]})`}
+      aria-label={`Theme: ${CYCLE_LABEL[current]}. Switch to ${CYCLE_LABEL[next]}`}
+      onClick={() => setTheme(next)}
+      className={cn(
+        "flex size-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-slate-100 hover:text-foreground dark:hover:bg-white/10",
+        className,
+      )}
+    >
+      <Icon className="size-4" aria-hidden />
+    </button>
+  );
+}
+
 const OPTIONS = [
   { value: "light", icon: Sun, label: "Light" },
   { value: "dark", icon: Moon, label: "Dark" },
