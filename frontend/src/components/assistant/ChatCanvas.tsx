@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AlertCircle, Bot, Send, Sparkles } from "lucide-react";
 import { assistantApi } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
@@ -9,6 +9,10 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 
 const SUGGESTIONS = ["Submit an expense", "Check my department's budget", "Request time off"];
+// Replies can take up to ~100s (multiple sequential LLM tool-calling
+// round trips) — without this, a slow-but-working reply looks identical
+// to a stuck one, and users refresh mid-request instead of waiting.
+const SLOW_REPLY_HINT_MS = 8000;
 
 export function ChatCanvas() {
   const { user } = useAuth();
@@ -16,20 +20,60 @@ export function ChatCanvas() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [isSlow, setIsSlow] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasLoadedHistory = useRef(false);
+
+  useEffect(() => {
+    if (hasLoadedHistory.current) return;
+    hasLoadedHistory.current = true;
+    // Resume the most recent conversation on load — otherwise a page
+    // refresh (or just reopening the tab) makes an in-progress or just
+    // completed exchange look like it vanished, even though it's saved.
+    assistantApi
+      .listConversations()
+      .then(async (conversations) => {
+        const latest = conversations[0];
+        if (!latest) return;
+        const history = await assistantApi.getConversationMessages(latest.id);
+        setConversationId(latest.id);
+        setMessages(history);
+      })
+      .catch(() => {});
+  }, []);
 
   async function send(content: string) {
     if (!content.trim()) return;
     setError(null);
+    setInput("");
+
+    // Show the user's own message the instant they send it, rather than
+    // waiting for the round trip — replaced below with the persisted
+    // version(s) once the request resolves.
+    const optimisticId = `pending-${Date.now()}`;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: optimisticId,
+        conversationId: conversationId ?? "",
+        role: "USER",
+        content,
+        createdAt: new Date().toISOString(),
+      },
+    ]);
     setIsSending(true);
+    const slowTimer = setTimeout(() => setIsSlow(true), SLOW_REPLY_HINT_MS);
     try {
       const result = await assistantApi.sendMessage(content, conversationId);
       setConversationId(result.conversation.id);
-      setMessages((prev) => [...prev, ...result.messages]);
-      setInput("");
+      setMessages((prev) => [...prev.filter((m) => m.id !== optimisticId), ...result.messages]);
     } catch {
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+      setInput(content);
       setError("Could not reach the Assistant. Is the backend running?");
     } finally {
+      clearTimeout(slowTimer);
+      setIsSlow(false);
       setIsSending(false);
     }
   }
@@ -99,10 +143,15 @@ export function ChatCanvas() {
             <span className="mb-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-teal-100 text-teal-700">
               <Bot className="size-4" aria-hidden />
             </span>
-            <div className="flex items-center gap-1 rounded-2xl rounded-bl-sm border border-border bg-slate-50 px-4 py-3">
-              <span className="size-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:-0.3s]" />
-              <span className="size-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:-0.15s]" />
-              <span className="size-1.5 animate-bounce rounded-full bg-slate-400" />
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center gap-1 rounded-2xl rounded-bl-sm border border-border bg-slate-50 px-4 py-3">
+                <span className="size-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:-0.3s]" />
+                <span className="size-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:-0.15s]" />
+                <span className="size-1.5 animate-bounce rounded-full bg-slate-400" />
+              </div>
+              {isSlow && (
+                <p className="text-xs text-muted">Still working — this can take up to a minute.</p>
+              )}
             </div>
           </div>
         )}

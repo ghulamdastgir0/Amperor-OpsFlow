@@ -20,12 +20,15 @@ export class SlackController {
   @Public()
   @Post('events')
   async handleEvent(@Body() payload: SlackEventDto, @Res() res: Response) {
+    // Bypassing Nest's response handling via @Res() means it no longer
+    // applies its default 201-for-POST status — set 200 explicitly, since
+    // Slack's URL verification handshake requires exactly that.
     if (payload.type === 'url_verification') {
-      res.json({ challenge: payload.challenge });
+      res.status(200).json({ challenge: payload.challenge });
       return;
     }
 
     await this.slackService.handleEvent(payload);
-    res.json({ ok: true });
+    res.status(200).json({ ok: true });
   }
 }
