@@ -1,5 +1,6 @@
-import { Body, Controller, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Post, Res } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { Public } from '../../common/decorators/public.decorator';
 import { SlackEventDto } from './dto/slack-event.dto';
 import { SlackService } from './slack.service';
@@ -12,16 +13,19 @@ export class SlackController {
   // Webhook Dispatch: Slack Events API -> file_shared / message events (SRS Section 5.1, step 2)
   // TODO: verify the X-Slack-Signature / X-Slack-Request-Timestamp headers against
   // SLACK_SIGNING_SECRET before trusting the payload (requires raw body capture).
+  //
+  // Uses @Res() to bypass the global TransformInterceptor: Slack's URL
+  // verification handshake requires the raw `{"challenge": ...}` body at the
+  // top level, not wrapped in this app's usual {success, data} envelope.
   @Public()
   @Post('events')
-  @HttpCode(200)
-  async handleEvent(@Body() payload: SlackEventDto) {
-    // Events API URL verification handshake
+  async handleEvent(@Body() payload: SlackEventDto, @Res() res: Response) {
     if (payload.type === 'url_verification') {
-      return { challenge: payload.challenge };
+      res.json({ challenge: payload.challenge });
+      return;
     }
 
     await this.slackService.handleEvent(payload);
-    return { ok: true };
+    res.json({ ok: true });
   }
 }
