@@ -18,7 +18,6 @@ import { useToast } from "@/components/ui/Toast";
 import { REQUEST_STATUS_DISPLAY } from "@/lib/statusDisplay";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
-const SLACK_INSTALL_URL = `${API_URL}/auth/slack/install`;
 
 export default function PlatformTenantDetailPage({ params }: PageProps<"/platform/tenants/[id]">) {
   const { id: tenantId } = use(params);
@@ -61,7 +60,9 @@ export default function PlatformTenantDetailPage({ params }: PageProps<"/platfor
   }
 
   async function copySlackInstallLink() {
-    await navigator.clipboard.writeText(SLACK_INSTALL_URL);
+    if (!tenant?.slackTeamId) return;
+    const url = `${API_URL}/auth/slack/install?team=${encodeURIComponent(tenant.slackTeamId)}`;
+    await navigator.clipboard.writeText(url);
     toast.success("Slack install link copied — send it to an admin in that Slack workspace.");
   }
 

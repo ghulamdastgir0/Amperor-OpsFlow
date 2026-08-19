@@ -13,7 +13,6 @@ import { Card } from "@/components/ui/Card";
 import { useToast } from "@/components/ui/Toast";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
-const SLACK_INSTALL_URL = `${API_URL}/auth/slack/install`;
 
 // Only a SYSTEM_ADMIN can see or fix a tenant's Slack connection, so this only
 // gates that role — everyone else reaches their panel as usual.
@@ -102,7 +101,10 @@ export function RequireSlackConnected({ children }: { children: React.ReactNode 
 
         {tenant.slackTeamId ? (
           <div className="mt-6 flex flex-col items-center gap-3">
-            <a href={SLACK_INSTALL_URL} className="w-full">
+            <a
+              href={`${API_URL}/auth/slack/install?team=${encodeURIComponent(tenant.slackTeamId)}`}
+              className="w-full"
+            >
               <Button className="w-full">Connect Slack</Button>
             </a>
             <p className="text-xs text-muted">

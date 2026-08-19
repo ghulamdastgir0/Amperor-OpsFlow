@@ -27,11 +27,14 @@ export class AuthController {
 
   // "Add to Slack": redirects to Slack's OAuth consent screen. Completing it
   // creates a new Tenant + makes the installer its first SYSTEM_ADMIN.
+  // An optional `team` query param pins the consent screen to that workspace
+  // (see SlackOAuthService.getInstallUrl) — pass the tenant's slackTeamId
+  // when it's already known so the user isn't left picking from a dropdown.
   @Public()
   @ApiOperation({ summary: 'Redirect to Slack to install the app into a workspace' })
   @Get('slack/install')
-  installSlack(@Res() res: Response) {
-    return res.redirect(this.slackOAuth.getInstallUrl());
+  installSlack(@Query('team') team: string | undefined, @Res() res: Response) {
+    return res.redirect(this.slackOAuth.getInstallUrl(team));
   }
 
   @Public()

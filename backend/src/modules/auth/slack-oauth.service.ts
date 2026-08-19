@@ -59,12 +59,17 @@ export class SlackOAuthService {
     private readonly users: UsersService,
   ) {}
 
-  getInstallUrl(): string {
+  // `team` pins the OAuth consent screen to a specific workspace instead of
+  // leaving Slack to guess from the browser's session — without it, a user
+  // signed into multiple workspaces just gets whichever one Slack defaults
+  // to, with no guarantee it's the one this tenant is actually linked to.
+  getInstallUrl(team?: string): string {
     const params = new URLSearchParams({
       client_id: this.requireConfig('slack.clientId'),
       scope: INSTALL_SCOPES,
       redirect_uri: this.redirectUri('install'),
       state: this.signState('slack_install'),
+      ...(team ? { team } : {}),
     });
     return `https://slack.com/oauth/v2/authorize?${params.toString()}`;
   }
