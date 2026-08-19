@@ -6,6 +6,7 @@ import { LayoutGrid, Bot, Inbox, Wallet, UserCog, ScrollText, LogOut, Sparkles }
 import { useAuth } from "@/hooks/useAuth";
 import { clearAuthToken } from "@/lib/api";
 import { Avatar } from "@/components/ui/Avatar";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { cn } from "@/lib/cn";
 import type { Role } from "@/lib/types";
 
@@ -51,7 +52,9 @@ export function AppSidebar() {
               href={item.href}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                isActive ? "bg-indigo-50 text-primary" : "text-muted hover:bg-slate-50 hover:text-foreground",
+                isActive
+                  ? "bg-indigo-50 text-primary dark:bg-indigo-500/10"
+                  : "text-muted hover:bg-slate-50 hover:text-foreground dark:hover:bg-white/5",
               )}
             >
               <Icon className="size-4" aria-hidden />
@@ -60,6 +63,10 @@ export function AppSidebar() {
           );
         })}
       </nav>
+
+      <div className="border-t border-border px-4 py-3">
+        <ThemeToggle />
+      </div>
 
       {user && (
         <div className="flex items-center gap-2.5 border-t border-border px-4 py-4">
@@ -72,7 +79,7 @@ export function AppSidebar() {
             type="button"
             onClick={handleSignOut}
             aria-label="Sign out"
-            className="rounded-md p-1.5 text-muted hover:bg-slate-100 hover:text-foreground"
+            className="rounded-md p-1.5 text-muted hover:bg-slate-100 hover:text-foreground dark:hover:bg-white/5"
           >
             <LogOut className="size-4" />
           </button>

@@ -37,9 +37,9 @@ async function main() {
 
     const passwordHash = await bcrypt.hash(password, 10);
     const admin = await prisma.platformAdmin.create({
-      data: { email, passwordHash },
+      data: { email, passwordHash, isGlobalAdmin: true },
     });
-    console.log(`Created platform admin ${admin.email} (${admin.id}).`);
+    console.log(`Created global platform admin ${admin.email} (${admin.id}).`);
   } finally {
     await prisma.$disconnect();
   }

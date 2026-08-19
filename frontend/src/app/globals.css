@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #f8fafc;
   --surface: #ffffff;
@@ -11,6 +13,19 @@
   --primary-foreground: #ffffff;
   --secondary: #0d9488;
   --ring: #4f46e5;
+}
+
+.dark {
+  --background: #0a0e17;
+  --surface: #121826;
+  --foreground: #e7e9f0;
+  --muted: #94a3b8;
+  --border: #232b3d;
+  --primary: #6366f1;
+  --primary-hover: #818cf8;
+  --primary-foreground: #ffffff;
+  --secondary: #2dd4bf;
+  --ring: #6366f1;
 }
 
 @theme inline {
@@ -63,6 +78,11 @@ body {
   background: linear-gradient(90deg, #eef0f4 25%, #f8f9fb 37%, #eef0f4 63%);
   background-size: 800px 100%;
   animation: shimmer 1.6s ease-in-out infinite;
+}
+
+.dark .skeleton {
+  background: linear-gradient(90deg, #1a2032 25%, #212840 37%, #1a2032 63%);
+  background-size: 800px 100%;
 }
 
 @keyframes shimmer {

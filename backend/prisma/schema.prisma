@@ -125,10 +125,13 @@ model User {
 // claim check) rather than special-casing the per-tenant guard/query pattern
 // every other identity in this schema follows.
 model PlatformAdmin {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email        String   @unique
-  passwordHash String   @map("password_hash")
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email         String   @unique
+  passwordHash  String   @map("password_hash")
+  name          String?
+  isGlobalAdmin Boolean  @default(false) @map("is_global_admin")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   @@map("platform_admins")
 }

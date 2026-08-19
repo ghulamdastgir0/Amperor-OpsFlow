@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, Plus_Jakarta_Sans } from "next/font/google";
+import { ThemeProvider } from "next-themes";
 import "./globals.css";
 import { ToastProvider } from "@/components/ui/Toast";
 
@@ -20,9 +21,15 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${inter.variable} ${jakarta.variable} h-full antialiased`}>
+    <html
+      lang="en"
+      className={`${inter.variable} ${jakarta.variable} h-full antialiased`}
+      suppressHydrationWarning
+    >
       <body className="min-h-full bg-background text-foreground">
-        <ToastProvider>{children}</ToastProvider>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          <ToastProvider>{children}</ToastProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

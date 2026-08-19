@@ -63,6 +63,15 @@ export class JwtAuthGuard implements CanActivate {
       if (!isPlatformAdminPayload(payload)) {
         throw new UnauthorizedException('Platform admin token required');
       }
+      // Immediate cutoff: a blocked admin's already-issued JWT stops working
+      // on their very next request, not just at their next login.
+      const admin = await this.prisma.platformAdmin.findUnique({
+        where: { id: payload.adminId },
+        select: { isActive: true },
+      });
+      if (!admin || !admin.isActive) {
+        throw new ForbiddenException('This admin account has been blocked');
+      }
       request.platformAdmin = payload;
       return true;
     }

@@ -1,4 +1,7 @@
 import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -11,6 +14,17 @@ import { RequestsService } from '../requests/requests.service';
 import { BudgetsService } from '../budgets/budgets.service';
 import { CreateTenantDto } from '../tenants/dto/create-tenant.dto';
 import { PlatformLoginDto } from './dto/platform-login.dto';
+import { CreatePlatformAdminDto } from './dto/create-platform-admin.dto';
+import { UpdatePlatformAdminProfileDto } from './dto/update-platform-admin-profile.dto';
+
+const ADMIN_PROFILE_SELECT = {
+  id: true,
+  email: true,
+  name: true,
+  isGlobalAdmin: true,
+  isActive: true,
+  createdAt: true,
+} as const;
 
 @Injectable()
 export class PlatformAdminService {
@@ -30,6 +44,9 @@ export class PlatformAdminService {
 
     const matches = await bcrypt.compare(dto.password, admin.passwordHash);
     if (!matches) throw new UnauthorizedException('Invalid credentials');
+    if (!admin.isActive) {
+      throw new UnauthorizedException('This admin account has been blocked');
+    }
 
     const payload = {
       adminId: admin.id,
@@ -37,6 +54,102 @@ export class PlatformAdminService {
       kind: 'platform_admin' as const,
     };
     return { accessToken: this.jwtService.sign(payload), admin: payload };
+  }
+
+  getProfile(adminId: string) {
+    return this.requireAdmin(adminId);
+  }
+
+  async updateProfile(adminId: string, dto: UpdatePlatformAdminProfileDto) {
+    await this.requireAdmin(adminId);
+
+    if (dto.email) {
+      const existing = await this.prisma.platformAdmin.findUnique({
+        where: { email: dto.email },
+      });
+      if (existing && existing.id !== adminId) {
+        throw new ConflictException('That email is already in use');
+      }
+    }
+
+    return this.prisma.platformAdmin.update({
+      where: { id: adminId },
+      data: {
+        name: dto.name,
+        email: dto.email,
+        passwordHash: dto.password
+          ? await bcrypt.hash(dto.password, 10)
+          : undefined,
+      },
+      select: ADMIN_PROFILE_SELECT,
+    });
+  }
+
+  async listAdmins(actingAdminId: string) {
+    await this.requireGlobalAdmin(actingAdminId);
+    return this.prisma.platformAdmin.findMany({
+      orderBy: { createdAt: 'asc' },
+      select: ADMIN_PROFILE_SELECT,
+    });
+  }
+
+  async createAdmin(actingAdminId: string, dto: CreatePlatformAdminDto) {
+    await this.requireGlobalAdmin(actingAdminId);
+
+    const existing = await this.prisma.platformAdmin.findUnique({
+      where: { email: dto.email },
+    });
+    if (existing) throw new ConflictException('That email is already in use');
+
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+    return this.prisma.platformAdmin.create({
+      data: {
+        email: dto.email,
+        passwordHash,
+        name: dto.name,
+        isGlobalAdmin: dto.isGlobalAdmin ?? false,
+      },
+      select: ADMIN_PROFILE_SELECT,
+    });
+  }
+
+  async setAdminActive(actingAdminId: string, id: string, isActive: boolean) {
+    await this.requireGlobalAdmin(actingAdminId);
+    if (id === actingAdminId) {
+      throw new BadRequestException("You can't block your own account");
+    }
+    await this.requireAdmin(id);
+    return this.prisma.platformAdmin.update({
+      where: { id },
+      data: { isActive },
+      select: ADMIN_PROFILE_SELECT,
+    });
+  }
+
+  async deleteAdmin(actingAdminId: string, id: string) {
+    await this.requireGlobalAdmin(actingAdminId);
+    if (id === actingAdminId) {
+      throw new BadRequestException("You can't delete your own account");
+    }
+    await this.requireAdmin(id);
+    await this.prisma.platformAdmin.delete({ where: { id } });
+  }
+
+  private async requireAdmin(id: string) {
+    const admin = await this.prisma.platformAdmin.findUnique({
+      where: { id },
+      select: ADMIN_PROFILE_SELECT,
+    });
+    if (!admin) throw new NotFoundException('Platform admin not found');
+    return admin;
+  }
+
+  private async requireGlobalAdmin(id: string) {
+    const admin = await this.requireAdmin(id);
+    if (!admin.isGlobalAdmin) {
+      throw new ForbiddenException('Only a global admin can do this');
+    }
+    return admin;
   }
 
   async listTenants() {

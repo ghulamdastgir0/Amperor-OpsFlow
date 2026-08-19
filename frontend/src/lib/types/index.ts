@@ -169,6 +169,15 @@ export interface FinanceDashboard {
   recentTransactions: FinanceTransaction[];
 }
 
+export interface PlatformAdminProfile {
+  id: string;
+  email: string;
+  name?: string | null;
+  isGlobalAdmin: boolean;
+  isActive: boolean;
+  createdAt: string;
+}
+
 export interface PlatformTenant {
   id: string;
   name: string;

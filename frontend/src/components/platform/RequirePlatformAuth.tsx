@@ -10,10 +10,12 @@ export function RequirePlatformAuth({ children }: { children: React.ReactNode })
   const { isAuthenticated } = usePlatformAuth();
 
   useEffect(() => {
+    console.log("[DEBUG RequirePlatformAuth effect] isAuthenticated=", isAuthenticated);
     if (!isAuthenticated) {
       router.replace("/platform/login");
     }
   }, [isAuthenticated, router]);
+  console.log("[DEBUG RequirePlatformAuth render] isAuthenticated=", isAuthenticated);
 
   if (!isAuthenticated) {
     return (

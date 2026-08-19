@@ -30,8 +30,13 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!errorCode) return;
+    // Freeze the message into state and strip the query param immediately: without
+    // this, the banner would either vanish on the next unrelated re-render (once the
+    // param is gone) or keep re-appearing on every plain refresh (while it's still
+    // there). One-shot consumption of a browser-URL side channel has no derived-state
+    // equivalent, so this is a deliberate, narrow exception to the no-setState-in-effect rule.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSlackError(SLACK_ERROR_MESSAGES[errorCode] ?? "Something went wrong. Please try again.");
-    // Strip the query param so a plain refresh doesn't keep re-showing this banner.
     const url = new URL(window.location.href);
     url.searchParams.delete("error");
     window.history.replaceState({}, "", url.pathname + url.search);
