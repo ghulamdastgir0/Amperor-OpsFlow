@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import { Role } from '@prisma/client';
 import { TenantsService } from '../tenants/tenants.service';
 import { UsersService } from '../users/users.service';
 
@@ -42,6 +43,7 @@ interface OpenIdUserInfoResponse {
   ok: boolean;
   sub?: string;
   email?: string;
+  name?: string;
   'https://slack.com/team_id'?: string;
 }
 
@@ -141,10 +143,11 @@ export class SlackOAuthService {
         data.access_token,
         data.authed_user.id,
       );
-      const admin = await this.users.createSlackAdmin(updatedTenant.id, {
+      const admin = await this.users.createSlackUser(updatedTenant.id, {
         email: profile.email,
         name: profile.name,
         slackUserId: data.authed_user.id,
+        role: Role.SYSTEM_ADMIN,
       });
       return { tenant: updatedTenant, user: admin };
     }
@@ -153,10 +156,39 @@ export class SlackOAuthService {
       updatedTenant.id,
       data.authed_user.id,
     );
-    return { tenant: updatedTenant, user: existingUser };
+    if (existingUser) return { tenant: updatedTenant, user: existingUser };
+
+    // Not linked by slackUserId yet — this is likely a password-based admin
+    // (created via "Add Admin", never through Slack) installing the app
+    // themselves. Match them by email and link their account so this install
+    // and future "Continue with Slack" sign-ins both resolve to the same user.
+    const profile = await this.fetchInstallerProfile(
+      data.access_token,
+      data.authed_user.id,
+    );
+    const matchedByEmail = await this.users.findByEmail(
+      updatedTenant.id,
+      profile.email,
+    );
+    if (matchedByEmail) {
+      const linked = await this.users.linkSlackUserId(
+        matchedByEmail.id,
+        data.authed_user.id,
+      );
+      return { tenant: updatedTenant, user: linked };
+    }
+
+    return { tenant: updatedTenant, user: undefined };
   }
 
-  // "Sign in with Slack": looks up a User already linked to this Slack identity.
+  // "Sign in with Slack": looks up a User already linked to this Slack
+  // identity. If none exists yet but the caller is a verified member of a
+  // workspace that's actually connected to a tenant (bot token present —
+  // not just a slackTeamId set ahead of install), they're auto-provisioned
+  // as a regular EMPLOYEE: being an authenticated member of that Slack
+  // workspace is treated as proof they belong to the tenant, no separate
+  // invite step required. An existing password-based user with a matching
+  // email is linked instead of duplicated.
   async completeSlackLogin(code: string, state: string) {
     this.verifyState(state, 'slack_login');
 
@@ -190,12 +222,35 @@ export class SlackOAuthService {
     );
     const teamId = userInfo.data['https://slack.com/team_id'];
     const slackUserId = userInfo.data.sub;
+    const email = userInfo.data.email;
     if (!userInfo.data.ok || !teamId || !slackUserId) return null;
 
     const tenant = await this.tenants.findBySlackTeamId(teamId);
-    if (!tenant) return null;
+    // Require the tenant to have actually completed "Add to Slack" (bot
+    // token present) before anyone can self-provision via sign-in — a
+    // slackTeamId can be set ahead of install, and we don't want workspace
+    // members racing to create accounts before that's finished.
+    if (!tenant?.slackBotToken) return null;
 
-    return this.users.findBySlackUserId(tenant.id, slackUserId);
+    const existingUser = await this.users.findBySlackUserId(
+      tenant.id,
+      slackUserId,
+    );
+    if (existingUser) return existingUser;
+
+    if (!email) return null;
+
+    const matchedByEmail = await this.users.findByEmail(tenant.id, email);
+    if (matchedByEmail) {
+      return this.users.linkSlackUserId(matchedByEmail.id, slackUserId);
+    }
+
+    return this.users.createSlackUser(tenant.id, {
+      email,
+      name: userInfo.data.name ?? email,
+      slackUserId,
+      role: Role.EMPLOYEE,
+    });
   }
 
   private async fetchInstallerProfile(botToken: string, slackUserId: string) {
