@@ -129,7 +129,7 @@ export function ChatCanvas() {
                 className={`max-w-[75%] whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm ${
                   isUser
                     ? "rounded-br-sm bg-primary text-primary-foreground"
-                    : "rounded-bl-sm border border-border bg-slate-50 text-foreground"
+                    : "rounded-bl-sm border border-border bg-slate-50 text-foreground dark:bg-white/5"
                 }`}
               >
                 {message.content}
@@ -144,7 +144,7 @@ export function ChatCanvas() {
               <Bot className="size-4" aria-hidden />
             </span>
             <div className="flex flex-col gap-1.5">
-              <div className="flex items-center gap-1 rounded-2xl rounded-bl-sm border border-border bg-slate-50 px-4 py-3">
+              <div className="flex items-center gap-1 rounded-2xl rounded-bl-sm border border-border bg-slate-50 px-4 py-3 dark:bg-white/5">
                 <span className="size-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:-0.3s]" />
                 <span className="size-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:-0.15s]" />
                 <span className="size-1.5 animate-bounce rounded-full bg-slate-400" />
