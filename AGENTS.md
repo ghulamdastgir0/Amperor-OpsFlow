@@ -131,8 +131,23 @@ employee roles + broadcast/auto-routing (above).
   (`LlmService.generateJson`) that extracts merchant/amount/currency/line items/tax ID from an
   uploaded receipt/invoice image or PDF.
 - `PoliciesService.findRelevantClauses` — real retrieval over `PolicyChunk` rows for the tenant (not a
-  full vector DB — check the current implementation for the actual matching method before assuming
-  embedding-based search).
+  full vector DB — manual cosine similarity in JS over rows fetched per tenant, check the current
+  implementation for the actual matching method before assuming otherwise). Embeddings are genuinely
+  embedding-based, but **not via Gemini** — `EmbeddingService` (`backend/src/modules/llm/embedding.service.ts`)
+  runs `Xenova/all-MiniLM-L6-v2` locally in-process via `@xenova/transformers` (transformers.js, ONNX,
+  CPU), 384 dims, no API key/network call/rate limit. Model weights (~90MB) download once on first use
+  and are cached by transformers.js's default cache dir. `RELEVANCE_FLOOR` in `PoliciesService` is
+  tuned per-embedding-model, not a universal constant — MiniLM's cosine similarity for genuinely
+  relevant short-query/long-chunk pairs runs notably lower than Gemini's did (~0.4–0.6 vs. whatever
+  Gemini produced), so it's currently `0.35`, not `0.5`. If the embedding model ever changes again,
+  re-verify this floor against real similarity scores before trusting retrieval results — a floor
+  tuned for the wrong model silently returns too few (or too much noise) results, not an error.
+  Policy documents can be uploaded as a PDF (extracted server-side via `pdf-parse`'s `PDFParse` class,
+  `PoliciesService.createFromFile`/`extractText`) or `.txt`/`.md`, via `POST /policies/upload`
+  (multipart) — or as raw pasted text via the original `POST /policies` (JSON `content` field). The
+  frontend's `PolicyUploadForm` only shows the manual-paste textarea when no file is selected; a file
+  upload never needs (and can't provide) manual text, since PDF text can't be read client-side as
+  plain text (`file.text()` on a PDF yields binary noise, not extracted text).
 - The full approval state machine is implemented in `RequestsService`: `runPipeline` (policy citation +
   amount check) routes a request through `PENDING_MANAGER_APPROVAL` → (`PENDING_FINANCE_APPROVAL` if a
   `FinanceDelegation` covers the department/amount, else `ESCALATED`) → `APPROVED`/`REJECTED`, with an

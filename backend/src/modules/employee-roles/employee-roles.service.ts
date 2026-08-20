@@ -10,6 +10,7 @@ import { firstValueFrom } from 'rxjs';
 import { Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PoliciesService } from '../policies/policies.service';
+import { LlmService } from '../llm/llm.service';
 import { CreateEmployeeRoleDto } from './dto/create-employee-role.dto';
 import { AssignEmployeeRolesDto } from './dto/assign-employee-roles.dto';
 import { SendBroadcastDto } from './dto/send-broadcast.dto';
@@ -36,19 +37,56 @@ export class EmployeeRolesService {
     private readonly config: ConfigService,
     private readonly httpService: HttpService,
     private readonly policies: PoliciesService,
+    private readonly llm: LlmService,
   ) {}
 
   // Grounds a role's description in the tenant's actual policy documents
   // instead of relying on an admin to describe it well by hand — since
   // that description is exactly what the assistant later reads to decide
-  // which role a filed request should route to.
+  // which role a filed request should route to. Retrieved chunks can each be
+  // up to ~1500 chars of raw markdown (tables, headers included) — joining
+  // them directly produced unreadable, multi-thousand-char text that blew
+  // past the 300-char description limit and failed to save. Summarize with
+  // the LLM into one short plain-prose sentence instead.
   async suggestDescription(
     tenantId: string,
     roleName: string,
   ): Promise<{ description: string | null }> {
     const clauses = await this.policies.findRelevantClauses(tenantId, roleName);
     if (clauses.length === 0) return { description: null };
-    return { description: clauses.map((c) => c.clauseSnippet).join(' ') };
+
+    const context = clauses.map((c) => c.clauseSnippet).join('\n\n---\n\n');
+    try {
+      const summary = await this.llm.generateContent({
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text:
+                  `Based only on the policy excerpts below, write ONE short, plain-prose sentence ` +
+                  `(no markdown, no bullet points, no headings, under 220 characters) describing what ` +
+                  `the "${roleName}" role/department is responsible for. This will be shown to an AI ` +
+                  `agent deciding which role a request should route to, so be concrete and specific.\n\n` +
+                  `Policy excerpts:\n${context}`,
+              },
+            ],
+          },
+        ],
+      });
+      return { description: this.clampDescription(summary) };
+    } catch (error) {
+      this.logger.warn(
+        `Failed to summarize description for role "${roleName}": ${(error as Error).message}`,
+      );
+      // Fall back to a hard-truncated raw snippet rather than failing the suggestion outright.
+      return { description: this.clampDescription(clauses[0].clauseSnippet) };
+    }
+  }
+
+  private clampDescription(text: string): string {
+    const cleaned = text.replace(/\s+/g, ' ').trim();
+    return cleaned.length > 280 ? `${cleaned.slice(0, 277)}...` : cleaned;
   }
 
   async list(tenantId: string) {

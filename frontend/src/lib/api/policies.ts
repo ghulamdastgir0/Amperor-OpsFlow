@@ -17,3 +17,23 @@ export async function createPolicy(payload: CreatePolicyPayload) {
   const { data } = await apiClient.post<ApiEnvelope<PolicyDocument>>('/policies', payload);
   return data.data;
 }
+
+export interface UploadPolicyFilePayload {
+  file: File;
+  title: string;
+  sourceUrl?: string;
+  version?: string;
+}
+
+export async function uploadPolicyFile(payload: UploadPolicyFilePayload) {
+  const formData = new FormData();
+  formData.append('file', payload.file);
+  formData.append('title', payload.title);
+  if (payload.sourceUrl) formData.append('sourceUrl', payload.sourceUrl);
+  if (payload.version) formData.append('version', payload.version);
+
+  const { data } = await apiClient.post<ApiEnvelope<PolicyDocument>>('/policies/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data.data;
+}

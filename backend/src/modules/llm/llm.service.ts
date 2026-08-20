@@ -28,10 +28,6 @@ interface GenerateContentResponse {
   }>;
 }
 
-interface EmbedContentResponse {
-  embedding?: { values?: number[] };
-}
-
 // Thrown on any failure talking to the LLM provider — callers decide their own
 // graceful-degradation fallback (canned reply, empty citations, empty OCR result).
 export class LlmRequestError extends Error {}
@@ -107,23 +103,6 @@ export class LlmService {
       ],
       jsonResponse: input.jsonResponse,
     });
-  }
-
-  async embedContent(text: string): Promise<number[]> {
-    const model = this.config.get<string>('llm.embeddingModel');
-    const apiKey = this.requireApiKey();
-
-    const data = await this.post<EmbedContentResponse>(
-      `${API_BASE}/${model}:embedContent`,
-      apiKey,
-      { content: { parts: [{ text }] } },
-    );
-
-    const values = data.embedding?.values;
-    if (!values || values.length === 0) {
-      throw new LlmRequestError('LLM returned no embedding');
-    }
-    return values;
   }
 
   private async post<T>(

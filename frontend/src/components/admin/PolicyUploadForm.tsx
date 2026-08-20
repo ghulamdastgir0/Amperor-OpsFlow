@@ -15,36 +15,47 @@ export function PolicyUploadForm({ onCreated }: { onCreated: (policy: PolicyDocu
   const [content, setContent] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
   const [version, setVersion] = useState("");
-  const [fileName, setFileName] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  async function handleFile(file: File) {
-    const text = await file.text();
-    setContent(text);
-    setFileName(file.name);
+  function handleFile(file: File) {
+    setSelectedFile(file);
+    setContent("");
     if (!title) setTitle(file.name.replace(/\.[^/.]+$/, ""));
+  }
+
+  function clearFile() {
+    setSelectedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setIsSubmitting(true);
     try {
-      const policy = await policiesApi.createPolicy({
-        title,
-        content,
-        sourceUrl: sourceUrl || undefined,
-        version: version || undefined,
-      });
+      const policy = selectedFile
+        ? await policiesApi.uploadPolicyFile({
+            file: selectedFile,
+            title,
+            sourceUrl: sourceUrl || undefined,
+            version: version || undefined,
+          })
+        : await policiesApi.createPolicy({
+            title,
+            content,
+            sourceUrl: sourceUrl || undefined,
+            version: version || undefined,
+          });
       onCreated(policy);
       toast.success(`"${policy.title}" is now searchable by the Assistant.`);
       setTitle("");
       setContent("");
       setSourceUrl("");
       setVersion("");
-      setFileName(null);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    } catch {
-      toast.error("Could not save this policy. Check the fields and try again.");
+      clearFile();
+    } catch (err) {
+      const message = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+      toast.error(message ?? "Could not save this policy. Check the fields and try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -56,27 +67,37 @@ export function PolicyUploadForm({ onCreated }: { onCreated: (policy: PolicyDocu
         <input
           ref={fileInputRef}
           type="file"
-          accept=".txt,.md,text/plain,text/markdown"
+          accept=".pdf,.txt,.md,application/pdf,text/plain,text/markdown"
           className="hidden"
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) handleFile(file);
           }}
         />
-        {fileName ? (
+        {selectedFile ? (
           <>
             <FileText className="size-6 text-primary" aria-hidden />
-            <p className="text-sm font-medium text-foreground">{fileName}</p>
-            <p className="text-xs text-muted">Click to choose a different file</p>
+            <p className="text-sm font-medium text-foreground">{selectedFile.name}</p>
+            <p className="text-xs text-muted">Text will be extracted automatically — click to choose a different file</p>
           </>
         ) : (
           <>
             <UploadCloud className="size-6 text-primary" aria-hidden />
             <p className="text-sm font-medium text-foreground">Upload a policy document</p>
-            <p className="text-xs text-muted">.txt or .md — or paste the text below</p>
+            <p className="text-xs text-muted">.pdf, .txt, or .md — or paste the text below</p>
           </>
         )}
       </label>
+
+      {selectedFile && (
+        <button
+          type="button"
+          onClick={clearFile}
+          className="-mt-2 w-fit text-xs font-medium text-muted hover:text-foreground hover:underline"
+        >
+          Remove file and paste text instead
+        </button>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Input
@@ -102,15 +123,17 @@ export function PolicyUploadForm({ onCreated }: { onCreated: (policy: PolicyDocu
         onChange={(e) => setSourceUrl(e.target.value)}
       />
 
-      <Textarea
-        label="Policy text"
-        hint="The Assistant cites this content when answering questions or checking requests against policy."
-        placeholder="Paste the full policy text here…"
-        value={content}
-        onChange={(e) => setContent(e.target.value)}
-        rows={8}
-        required
-      />
+      {!selectedFile && (
+        <Textarea
+          label="Policy text"
+          hint="The Assistant cites this content when answering questions or checking requests against policy."
+          placeholder="Paste the full policy text here…"
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          rows={8}
+          required
+        />
+      )}
 
       <Button type="submit" isLoading={isSubmitting} className="w-fit">
         {isSubmitting ? "Saving…" : "Save Policy"}

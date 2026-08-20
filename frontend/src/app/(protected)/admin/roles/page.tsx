@@ -19,6 +19,16 @@ import { useToast } from "@/components/ui/Toast";
 // request-approval chain and Finance access still accept them as a
 // fallback), but they're not offered here since nobody in practice is
 // assigned them — System Admin already covers that approval step.
+// Backend validation errors (class-validator) come back as a string[] message;
+// manually-thrown ones (e.g. duplicate name) come back as a plain string.
+// Surfacing the real message beats guessing a cause from the status code alone.
+function extractErrorMessage(err: unknown): string | undefined {
+  const message = (err as { response?: { data?: { message?: string | string[] } } }).response?.data
+    ?.message;
+  if (Array.isArray(message)) return message.join(' ');
+  return message;
+}
+
 const ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: "EMPLOYEE", label: "Employee" },
   { value: "FINANCE_APPROVER", label: "Finance Approver" },
@@ -51,8 +61,7 @@ function RoleCatalog({
       setDescription("");
       toast.success(`Role "${role.name}" created.`);
     } catch (err) {
-      const status = (err as { response?: { status?: number } }).response?.status;
-      toast.error(status === 400 ? "A role with this name already exists." : "Could not create this role.");
+      toast.error(extractErrorMessage(err) ?? "Could not create this role.");
     } finally {
       setIsCreating(false);
     }

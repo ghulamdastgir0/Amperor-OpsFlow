@@ -1,11 +1,20 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { PDFParse } from 'pdf-parse';
 import { PrismaService } from '../../prisma/prisma.service';
-import { LlmService } from '../llm/llm.service';
+import { EmbeddingService } from '../llm/embedding.service';
 import { CreatePolicyDocumentDto } from './dto/create-policy-document.dto';
 
 const CHUNK_SIZE = 1500;
-const RELEVANCE_FLOOR = 0.5;
+// Tuned for the local MiniLM embedding model, not Gemini's — MiniLM's cosine
+// similarity for genuinely relevant short-query/long-chunk pairs typically
+// lands around 0.4-0.6, notably lower than Gemini's embedding space. The old
+// 0.5 floor (calibrated for Gemini) silently filtered out valid matches after
+// the switch — verified against real policy content before changing this.
+const RELEVANCE_FLOOR = 0.35;
 const TOP_K = 3;
+
+const PDF_MIME_TYPES = new Set(['application/pdf']);
+const TEXT_MIME_TYPES = new Set(['text/plain', 'text/markdown']);
 
 @Injectable()
 export class PoliciesService {
@@ -13,7 +22,7 @@ export class PoliciesService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly llm: LlmService,
+    private readonly embeddings: EmbeddingService,
   ) {}
 
   async create(tenantId: string, dto: CreatePolicyDocumentDto) {
@@ -24,7 +33,7 @@ export class PoliciesService {
     try {
       const chunks = this.chunkContent(dto.content);
       for (const content of chunks) {
-        const embedding = await this.llm.embedContent(content);
+        const embedding = await this.embeddings.embed(content);
         await this.prisma.policyChunk.create({
           data: { policyDocumentId: document.id, tenantId, content, embedding },
         });
@@ -36,6 +45,52 @@ export class PoliciesService {
     }
 
     return document;
+  }
+
+  // Extracts text server-side so the frontend never needs a manual paste
+  // step when a file is provided — PDFs in particular can't be read as
+  // plain text client-side (file.text() on a PDF just yields binary noise).
+  async createFromFile(
+    tenantId: string,
+    file: { buffer: Buffer; mimetype: string; originalname: string },
+    meta: { title: string; sourceUrl?: string; version?: string },
+  ) {
+    const content = await this.extractText(file);
+    if (!content.trim()) {
+      throw new BadRequestException(
+        'No readable text could be extracted from this file.',
+      );
+    }
+    return this.create(tenantId, { ...meta, content });
+  }
+
+  private async extractText(file: {
+    buffer: Buffer;
+    mimetype: string;
+    originalname: string;
+  }): Promise<string> {
+    if (PDF_MIME_TYPES.has(file.mimetype) || file.originalname.toLowerCase().endsWith('.pdf')) {
+      const parser = new PDFParse({ data: file.buffer });
+      try {
+        const parsed = await parser.getText();
+        return parsed.text;
+      } catch (error) {
+        throw new BadRequestException(
+          `Could not read this PDF: ${(error as Error).message}`,
+        );
+      } finally {
+        await parser.destroy();
+      }
+    }
+    if (
+      TEXT_MIME_TYPES.has(file.mimetype) ||
+      /\.(txt|md)$/i.test(file.originalname)
+    ) {
+      return file.buffer.toString('utf-8');
+    }
+    throw new BadRequestException(
+      'Unsupported file type — upload a PDF, .txt, or .md file.',
+    );
   }
 
   findAll(tenantId: string) {
@@ -71,7 +126,7 @@ export class PoliciesService {
       });
       if (chunks.length === 0) return [];
 
-      const queryEmbedding = await this.llm.embedContent(query);
+      const queryEmbedding = await this.embeddings.embed(query);
 
       return chunks
         .map((chunk) => ({

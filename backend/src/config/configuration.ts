@@ -21,6 +21,7 @@ export default () => ({
   llm: {
     apiKey: process.env.LLM_API_KEY,
     model: process.env.LLM_MODEL ?? 'gemini-2.5-flash',
-    embeddingModel: process.env.LLM_EMBEDDING_MODEL ?? 'gemini-embedding-001',
+    // Embeddings run locally via EmbeddingService (Xenova/all-MiniLM-L6-v2, transformers.js) —
+    // not Gemini. No API key or config needed there.
   },
 });
