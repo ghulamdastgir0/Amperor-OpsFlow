@@ -24,6 +24,13 @@ export class SlackService {
   private readonly logger = new Logger(SlackService.name);
   // Fallback for the bot user id when a tenant hasn't stored one via OAuth install.
   private fallbackBotUserId: string | undefined;
+  // Bounded in-memory dedup for Slack's event_id — Slack resends the same
+  // event_callback on delivery retry (e.g. slow ack), which previously
+  // produced duplicate replies/requests. Insertion-order Set used as a
+  // simple bounded cache; process-local is fine here, same pragmatism as
+  // PoliciesService's non-vector-DB retrieval.
+  private readonly recentEventIds = new Set<string>();
+  private static readonly MAX_RECENT_EVENT_IDS = 500;
 
   constructor(
     private readonly httpService: HttpService,
@@ -42,6 +49,18 @@ export class SlackService {
   async handleEvent(payload: SlackEventDto) {
     const event = payload.event;
     if (!event || !payload.team_id) return;
+
+    if (payload.event_id) {
+      if (this.recentEventIds.has(payload.event_id)) {
+        this.logger.log(`Ignoring duplicate Slack event ${payload.event_id}`);
+        return;
+      }
+      this.recentEventIds.add(payload.event_id);
+      if (this.recentEventIds.size > SlackService.MAX_RECENT_EVENT_IDS) {
+        const oldest = this.recentEventIds.values().next().value;
+        if (oldest) this.recentEventIds.delete(oldest);
+      }
+    }
 
     // Ignore messages posted by any bot, including ourselves, to avoid reply loops.
     if (event.bot_id) return;

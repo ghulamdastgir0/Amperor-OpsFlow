@@ -72,6 +72,12 @@ export class SlackEventDto {
   @IsString()
   team_id?: string;
 
+  // Unique per event_callback delivery — Slack resends the same event_id on
+  // retry (e.g. if the ack took too long), so this is what dedup keys on.
+  @IsOptional()
+  @IsString()
+  event_id?: string;
+
   @IsOptional()
   @ValidateNested()
   @Type(() => SlackEventPayloadDto)

@@ -67,6 +67,16 @@ Run: `npm install` at root, then `npm run dev:backend` / `npm run dev:frontend`.
   `bot_id` set are ignored (prevents reply loops). Messages with a file attachment become a
   `Request` + `Attachment`; messages without route through `AssistantService.sendMessage` — the
   same method the web chat UI calls, so Slack and web share one conversational entry point.
+- **`POST /slack/events` acks Slack immediately, then processes in the background** —
+  `SlackController.handleEvent` is NOT `async`/`await`ed on `SlackService.handleEvent()` on purpose; it
+  responds `200` first and fires the real handling off with a `.catch()`-logged promise. Slack requires a
+  200 within ~3s or it retries delivery of the same event; the assistant path can take far longer than
+  that (a single Gemini call alone can run 8-100+s), so awaiting it here used to mean Slack's own retry
+  reprocessed the same message and produced a duplicate reply — real bug, reproduced and fixed
+  2026-08-20. `SlackService.handleEvent` also dedupes by the event_callback's top-level `event_id`
+  (bounded in-memory `Set`, `SlackEventDto.event_id` — had to be added to the DTO explicitly, since
+  global `ValidationPipe({ whitelist: true })` was silently stripping it before) as a second layer, since
+  Slack can resend for reasons other than a slow ack too. Don't reintroduce an `await` before the ack.
 - **RBAC is enforced twice, deliberately**: `RolesGuard` on the backend is the real boundary;
   `<RequireAuth roles={[...]}>` on the frontend (wrapping the `(protected)` route group) is only a
   UX convenience that hides nav links / redirects — never trust it as security.
