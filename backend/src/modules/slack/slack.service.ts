@@ -130,7 +130,13 @@ export class SlackService {
     }
 
     // No attachment: route the message through the same conversational
-    // pipeline the Assistant UI uses.
+    // pipeline the Assistant UI uses. Ack immediately, same as the
+    // attachment branch above — a Gemini call here can take 8-100+s, and
+    // with no interim message Slack shows nothing at all until it's done,
+    // which reads as broken/stuck rather than just slow.
+    if (event.channel) {
+      await this.postMessage(botToken, event.channel, 'On it — give me a moment.', threadTs);
+    }
     const result = await this.assistant.sendMessage(tenant.id, requesterId, {
       content: text,
     });

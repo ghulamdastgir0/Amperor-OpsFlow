@@ -6,6 +6,7 @@ export interface CreatePolicyPayload {
   content: string;
   sourceUrl?: string;
   version?: string;
+  restricted?: boolean;
 }
 
 export async function listPolicies() {
@@ -23,6 +24,7 @@ export interface UploadPolicyFilePayload {
   title: string;
   sourceUrl?: string;
   version?: string;
+  restricted?: boolean;
 }
 
 export async function uploadPolicyFile(payload: UploadPolicyFilePayload) {
@@ -31,6 +33,7 @@ export async function uploadPolicyFile(payload: UploadPolicyFilePayload) {
   formData.append('title', payload.title);
   if (payload.sourceUrl) formData.append('sourceUrl', payload.sourceUrl);
   if (payload.version) formData.append('version', payload.version);
+  if (payload.restricted) formData.append('restricted', 'true');
 
   const { data } = await apiClient.post<ApiEnvelope<PolicyDocument>>('/policies/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },

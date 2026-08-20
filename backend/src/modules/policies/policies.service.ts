@@ -1,8 +1,19 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PDFParse } from 'pdf-parse';
+import { Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmbeddingService } from '../llm/embedding.service';
 import { CreatePolicyDocumentDto } from './dto/create-policy-document.dto';
+
+// A PolicyDocument.restricted document (financial/budget detail, etc.) is
+// only ever surfaced in retrieval results for these roles — everyone else
+// (including a plain EMPLOYEE) gets the same "nothing found" result they'd
+// get if the document didn't exist, both via search_policy and via the
+// citation viewer on their own filed request.
+export const RESTRICTED_DOC_VISIBLE_ROLES = new Set<Role>([
+  Role.FINANCE_APPROVER,
+  Role.SYSTEM_ADMIN,
+]);
 
 const CHUNK_SIZE = 1500;
 // Tuned for the local MiniLM embedding model, not Gemini's — MiniLM's cosine
@@ -53,7 +64,7 @@ export class PoliciesService {
   async createFromFile(
     tenantId: string,
     file: { buffer: Buffer; mimetype: string; originalname: string },
-    meta: { title: string; sourceUrl?: string; version?: string },
+    meta: { title: string; sourceUrl?: string; version?: string; restricted?: boolean },
   ) {
     const content = await this.extractText(file);
     if (!content.trim()) {
@@ -110,9 +121,15 @@ export class PoliciesService {
 
   // Policy Matching step of the ingestion/orchestration pipeline (SRS Section 5.1, step 5):
   // embed the query and rank the tenant's policy chunks by cosine similarity.
+  // actingRole gates out chunks belonging to a `restricted` PolicyDocument
+  // for anyone who isn't FINANCE_APPROVER/SYSTEM_ADMIN — required on every
+  // call site (search_policy tool, request policy-citation step, role
+  // description suggestion) so restricted content can't leak through any of
+  // them to an unauthorized user.
   async findRelevantClauses(
     tenantId: string,
     query: string,
+    actingRole: Role,
   ): Promise<
     Array<{
       policyDocumentId: string;
@@ -121,8 +138,12 @@ export class PoliciesService {
     }>
   > {
     try {
+      const canSeeRestricted = RESTRICTED_DOC_VISIBLE_ROLES.has(actingRole);
       const chunks = await this.prisma.policyChunk.findMany({
-        where: { tenantId },
+        where: {
+          tenantId,
+          ...(canSeeRestricted ? {} : { policyDocument: { restricted: false } }),
+        },
       });
       if (chunks.length === 0) return [];
 

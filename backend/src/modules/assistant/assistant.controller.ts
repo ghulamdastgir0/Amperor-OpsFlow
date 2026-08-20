@@ -34,7 +34,10 @@ export class AssistantController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
   ) {
-    return this.assistantService.getExecutionTimeline(user.tenantId, id);
+    return this.assistantService.getExecutionTimeline(user.tenantId, id, {
+      userId: user.userId,
+      role: user.role,
+    });
   }
 
   @Get('requests/:id/citations')
@@ -42,6 +45,9 @@ export class AssistantController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
   ) {
-    return this.assistantService.getPolicyCitations(user.tenantId, id);
+    return this.assistantService.getPolicyCitations(user.tenantId, id, {
+      userId: user.userId,
+      role: user.role,
+    });
   }
 }

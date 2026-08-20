@@ -52,7 +52,14 @@ export class EmployeeRolesService {
     tenantId: string,
     roleName: string,
   ): Promise<{ description: string | null }> {
-    const clauses = await this.policies.findRelevantClauses(tenantId, roleName);
+    // This endpoint is SYSTEM_ADMIN-only (see the controller), so full access
+    // is correct here — an admin describing a role catalog entry should be
+    // able to draw on restricted policy content too.
+    const clauses = await this.policies.findRelevantClauses(
+      tenantId,
+      roleName,
+      Role.SYSTEM_ADMIN,
+    );
     if (clauses.length === 0) return { description: null };
 
     const context = clauses.map((c) => c.clauseSnippet).join('\n\n---\n\n');

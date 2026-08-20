@@ -12,7 +12,7 @@ import {
   RequestStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PoliciesService } from '../policies/policies.service';
+import { PoliciesService, RESTRICTED_DOC_VISIBLE_ROLES } from '../policies/policies.service';
 import { FinanceDelegationsService } from '../finance-delegations/finance-delegations.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
@@ -29,6 +29,14 @@ const MANAGER_ROLES = new Set<Role>([
   Role.DEPARTMENT_MANAGER,
   Role.TEAM_LEAD,
   Role.SYSTEM_ADMIN,
+]);
+
+// Same "flat, tenant-wide approval authority" set as MANAGER_ROLES plus
+// FINANCE_APPROVER — anyone in it may see any request; everyone else only
+// their own. Mirrors AssistantService's identical set for the same reason.
+const BROAD_VISIBILITY_ROLES = new Set<Role>([
+  ...MANAGER_ROLES,
+  Role.FINANCE_APPROVER,
 ]);
 
 type FinalDecision =
@@ -69,24 +77,58 @@ export class RequestsService {
     return request;
   }
 
-  findAll(tenantId: string, status?: RequestStatus) {
+  // A plain EMPLOYEE only ever sees their own requests here — this app's
+  // approval roles (MANAGER_ROLES minus SYSTEM_ADMIN, plus FINANCE_APPROVER)
+  // are tenant-wide, not department-scoped, so anyone holding one is already
+  // trusted to review any request at that stage; an EMPLOYEE is not. Was
+  // previously unfiltered (any authenticated user saw every request in the
+  // tenant) — real gap, fixed 2026-08-20.
+  findAll(
+    tenantId: string,
+    actingUser: { userId: string; role: Role },
+    status?: RequestStatus,
+  ) {
+    const canSeeAll = BROAD_VISIBILITY_ROLES.has(actingUser.role);
     return this.prisma.request.findMany({
-      where: { tenantId, ...(status ? { status } : {}) },
+      where: {
+        tenantId,
+        ...(status ? { status } : {}),
+        ...(canSeeAll ? {} : { requesterId: actingUser.userId }),
+      },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  async findOne(tenantId: string, id: string) {
+  async findOne(
+    tenantId: string,
+    id: string,
+    actingUser: { userId: string; role: Role },
+  ) {
     const request = await this.prisma.request.findFirst({
       where: { id, tenantId },
       include: DETAIL_INCLUDE,
     });
     if (!request) throw new NotFoundException('Request not found');
+    if (
+      request.requesterId !== actingUser.userId &&
+      !BROAD_VISIBILITY_ROLES.has(actingUser.role)
+    ) {
+      throw new ForbiddenException("You don't have access to this request");
+    }
+    // Same restricted-document filtering as AssistantService.getPolicyCitations
+    // — DETAIL_INCLUDE embeds policyCitations directly, so without this, this
+    // endpoint would bypass that check entirely for the same underlying data.
+    if (!RESTRICTED_DOC_VISIBLE_ROLES.has(actingUser.role)) {
+      request.policyCitations = request.policyCitations.filter(
+        (c) => !c.policyDocument.restricted,
+      );
+    }
     return request;
   }
 
   async updateStatus(tenantId: string, id: string, status: RequestStatus) {
-    await this.findOne(tenantId, id);
+    const request = await this.prisma.request.findFirst({ where: { id, tenantId } });
+    if (!request) throw new NotFoundException('Request not found');
     return this.prisma.request.update({ where: { id }, data: { status } });
   }
 
@@ -102,9 +144,17 @@ export class RequestsService {
 
     await this.completeStep(requestId, 'Checking Policy...');
 
+    // This is the system checking policy compliance, not the requester
+    // directly querying — use full access (SYSTEM_ADMIN) so a restricted
+    // policy is still matched/cited internally even for a request filed by
+    // an unprivileged employee. Restriction is enforced at read time instead
+    // (AssistantService.getPolicyCitations, gated by the *viewer's* role),
+    // so a later Finance Approver reviewing the same request still sees it,
+    // while the original requester viewing their own request does not.
     const citations = await this.policies.findRelevantClauses(
       tenantId,
       request.rawPrompt,
+      Role.SYSTEM_ADMIN,
     );
     for (const citation of citations) {
       await this.prisma.policyCitation.create({

@@ -85,6 +85,7 @@ export interface PolicyDocument {
   sourceUrl?: string | null;
   content: string;
   version: string;
+  restricted: boolean;
   createdAt: string;
 }
 

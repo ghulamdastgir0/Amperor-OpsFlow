@@ -1,6 +1,6 @@
 import { tool } from '@langchain/core/tools';
 import type { RunnableConfig } from '@langchain/core/runnables';
-import { RequestChannel } from '@prisma/client';
+import { RequestChannel, Role } from '@prisma/client';
 import { z } from 'zod';
 import { PoliciesService } from '../../policies/policies.service';
 import { RequestsService } from '../../requests/requests.service';
@@ -9,12 +9,13 @@ import { EmployeeRolesService } from '../../employee-roles/employee-roles.servic
 interface AgentContext {
   tenantId: string;
   userId: string;
+  userRole: Role;
   rawPrompt: string;
 }
 
 function getContext(config: RunnableConfig): AgentContext {
   const ctx = config.configurable as Partial<AgentContext> | undefined;
-  if (!ctx?.tenantId || !ctx.userId || !ctx.rawPrompt) {
+  if (!ctx?.tenantId || !ctx.userId || !ctx.userRole || !ctx.rawPrompt) {
     throw new Error('Missing tenant/user context for tool call');
   }
   return ctx as AgentContext;
@@ -31,10 +32,11 @@ export function buildAssistantTools(
 ) {
   const searchPolicy = tool(
     async (input: { query: string }, config: RunnableConfig) => {
-      const { tenantId } = getContext(config);
+      const { tenantId, userRole } = getContext(config);
       const citations = await policies.findRelevantClauses(
         tenantId,
         input.query,
+        userRole,
       );
       if (citations.length === 0) {
         return 'No relevant company policy was found for this query.';

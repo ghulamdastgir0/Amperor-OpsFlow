@@ -246,7 +246,11 @@ export class PlatformAdminService {
 
   async getTenantRequests(id: string) {
     await this.requireTenant(id);
-    return this.requests.findAll(id);
+    // Platform admin oversight — deliberately bypasses the per-tenant
+    // employee-only visibility rule (RequestsService.findAll), same as its
+    // cross-tenant read access generally. SYSTEM_ADMIN here is a role
+    // sentinel only; userId is never compared once that grants full access.
+    return this.requests.findAll(id, { userId: '', role: Role.SYSTEM_ADMIN });
   }
 
   async getTenantBudgetDashboard(id: string) {

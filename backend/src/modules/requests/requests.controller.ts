@@ -35,13 +35,20 @@ export class RequestsController {
       status && Object.values(RequestStatus).includes(status as RequestStatus)
         ? (status as RequestStatus)
         : undefined;
-    return this.requestsService.findAll(user.tenantId, validStatus);
+    return this.requestsService.findAll(
+      user.tenantId,
+      { userId: user.userId, role: user.role },
+      validStatus,
+    );
   }
 
   // Backs the Live Execution Timeline + Context & Citation Viewer (FR-UI-002/003)
   @Get(':id')
   findOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.requestsService.findOne(user.tenantId, id);
+    return this.requestsService.findOne(user.tenantId, id, {
+      userId: user.userId,
+      role: user.role,
+    });
   }
 
   // Manager / Finance / Escalation decision — eligibility is dynamic (role + active

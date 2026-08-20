@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, type FormEvent } from "react";
-import { UploadCloud, FileText } from "lucide-react";
+import { UploadCloud, FileText, Lock } from "lucide-react";
 import { policiesApi } from "@/lib/api";
 import type { PolicyDocument } from "@/lib/types";
 import { Input, Textarea } from "@/components/ui/Field";
@@ -15,6 +15,7 @@ export function PolicyUploadForm({ onCreated }: { onCreated: (policy: PolicyDocu
   const [content, setContent] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
   const [version, setVersion] = useState("");
+  const [restricted, setRestricted] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -39,12 +40,14 @@ export function PolicyUploadForm({ onCreated }: { onCreated: (policy: PolicyDocu
             title,
             sourceUrl: sourceUrl || undefined,
             version: version || undefined,
+            restricted,
           })
         : await policiesApi.createPolicy({
             title,
             content,
             sourceUrl: sourceUrl || undefined,
             version: version || undefined,
+            restricted,
           });
       onCreated(policy);
       toast.success(`"${policy.title}" is now searchable by the Assistant.`);
@@ -52,6 +55,7 @@ export function PolicyUploadForm({ onCreated }: { onCreated: (policy: PolicyDocu
       setContent("");
       setSourceUrl("");
       setVersion("");
+      setRestricted(false);
       clearFile();
     } catch (err) {
       const message = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
@@ -122,6 +126,26 @@ export function PolicyUploadForm({ onCreated }: { onCreated: (policy: PolicyDocu
         value={sourceUrl}
         onChange={(e) => setSourceUrl(e.target.value)}
       />
+
+      <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-slate-50/60 px-3.5 py-3 text-sm dark:bg-white/[0.03]">
+        <input
+          type="checkbox"
+          checked={restricted}
+          onChange={(e) => setRestricted(e.target.checked)}
+          aria-label="Restrict to Finance & Admin only"
+          className="mt-0.5 size-4 shrink-0 accent-primary"
+        />
+        <span>
+          <span className="flex items-center gap-1.5 font-medium text-foreground">
+            <Lock className="size-3.5" aria-hidden />
+            Restrict to Finance & Admin only
+          </span>
+          <span className="mt-0.5 block text-xs text-muted">
+            Hidden from every other employee — in Assistant answers, request citations, and this list.
+            Use this for anything with real financial/budget detail.
+          </span>
+        </span>
+      </label>
 
       {!selectedFile && (
         <Textarea

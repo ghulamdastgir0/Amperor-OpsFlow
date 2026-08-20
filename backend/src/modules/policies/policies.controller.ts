@@ -51,15 +51,22 @@ export class PoliciesController {
       title: dto.title,
       sourceUrl: dto.sourceUrl,
       version: dto.version,
+      restricted: dto.restricted,
     });
   }
 
+  // Admin-only, same as create/upload above — these return full document
+  // content (including restricted ones) with no per-user filtering, so a
+  // non-admin must never reach them directly. Everyone else only ever sees
+  // policy content through search_policy, which is role-filtered.
   @Get()
+  @Roles(Role.SYSTEM_ADMIN)
   findAll(@CurrentUser() user: AuthenticatedUser) {
     return this.policiesService.findAll(user.tenantId);
   }
 
   @Get(':id')
+  @Roles(Role.SYSTEM_ADMIN)
   findOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.policiesService.findOne(user.tenantId, id);
   }

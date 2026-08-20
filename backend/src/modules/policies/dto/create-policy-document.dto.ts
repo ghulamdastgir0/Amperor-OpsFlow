@@ -1,4 +1,4 @@
-import { IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsOptional, IsString } from 'class-validator';
 
 export class CreatePolicyDocumentDto {
   @IsString()
@@ -14,4 +14,9 @@ export class CreatePolicyDocumentDto {
   @IsString()
   @IsOptional()
   version?: string;
+
+  // Restricted to FINANCE_APPROVER/SYSTEM_ADMIN — see PolicyDocument.restricted.
+  @IsBoolean()
+  @IsOptional()
+  restricted?: boolean;
 }

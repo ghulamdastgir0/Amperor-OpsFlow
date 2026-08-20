@@ -326,13 +326,18 @@ model ExecutionStep {
 // ─────────────────────────────────────────────
 
 model PolicyDocument {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId  String   @map("tenant_id") @db.Uuid
-  title     String
-  sourceUrl String?  @map("source_url")
-  content   String   @db.Text
-  version   String   @default("1.0")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  title      String
+  sourceUrl  String?  @map("source_url")
+  content    String   @db.Text
+  version    String   @default("1.0")
+  // Restricted to FINANCE_APPROVER/SYSTEM_ADMIN — excluded from search_policy
+  // and policy-citation results for everyone else, so a document containing
+  // real financial/budget detail isn't surfaced to a plain employee via chat
+  // or the citation viewer on their own filed request.
+  restricted Boolean  @default(false)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   citations PolicyCitation[]

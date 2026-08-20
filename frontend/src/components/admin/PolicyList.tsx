@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ExternalLink, ScrollText } from "lucide-react";
+import { ChevronDown, ExternalLink, Lock, ScrollText } from "lucide-react";
 import type { PolicyDocument } from "@/lib/types";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -49,6 +49,15 @@ export function PolicyList({ policies }: { policies: PolicyDocument[] | null }) 
                   Uploaded {new Date(policy.createdAt).toLocaleDateString()}
                 </p>
               </div>
+              {policy.restricted && (
+                <span
+                  title="Only visible to Finance Approvers and System Admins — hidden from everyone else, including in Assistant answers"
+                  className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-300"
+                >
+                  <Lock className="size-3" aria-hidden />
+                  Finance/Admin only
+                </span>
+              )}
               <Badge tone="violet">v{policy.version}</Badge>
               <ChevronDown
                 className={cn("size-4 shrink-0 text-muted transition-transform", isOpen && "rotate-180")}
