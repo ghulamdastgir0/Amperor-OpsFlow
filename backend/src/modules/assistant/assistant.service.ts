@@ -12,6 +12,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { RequestsService } from '../requests/requests.service';
 import { PoliciesService } from '../policies/policies.service';
+import { EmployeeRolesService } from '../employee-roles/employee-roles.service';
 import { buildAssistantTools } from './agent/assistant.tools';
 import { buildAssistantGraph } from './agent/assistant.graph';
 import { SendMessageDto } from './dto/send-message.dto';
@@ -35,7 +36,10 @@ TOOLS
   approval routing. Only call this for a concrete, actionable ask — never to answer a question, and
   never more than once per user message. After you call it, the exact reference number and routing
   status are appended to your reply automatically — you don't need to restate them, just briefly confirm
-  what happened and what's next.
+  what happened and what's next. If an EMPLOYEE ROLES list is provided below and one of those roles
+  clearly owns this kind of request (e.g. a leave request and a "Human Resources (HR)" role), pass that
+  role's exact name as routeToRoleName so it gets forwarded to whoever holds it — omit it if none clearly
+  apply, don't guess or force a match.
 - If neither tool applies, just respond in plain text — either answering the question or asking a short
   clarifying question. You have the conversation history, so a clarifying question you asked can be
   answered on the next turn instead of you asking it again.
@@ -87,6 +91,7 @@ export class AssistantService {
     private readonly prisma: PrismaService,
     private readonly requests: RequestsService,
     private readonly policies: PoliciesService,
+    private readonly employeeRoles: EmployeeRolesService,
     config: ConfigService,
   ) {
     const model = new ChatGoogleGenerativeAI({
@@ -94,7 +99,11 @@ export class AssistantService {
       model: config.get<string>('llm.model') ?? 'gemini-2.5-flash',
       temperature: 0.2,
     });
-    const tools = buildAssistantTools(this.policies, this.requests);
+    const tools = buildAssistantTools(
+      this.policies,
+      this.requests,
+      this.employeeRoles,
+    );
     this.graph = buildAssistantGraph(model, tools);
   }
 
@@ -140,12 +149,12 @@ export class AssistantService {
     content: string,
   ): Promise<{ replyText: string; requestId?: string }> {
     try {
-      const history = await this.getHistory(
-        conversationId,
-        currentMessageCreatedAt,
-      );
+      const [history, roles] = await Promise.all([
+        this.getHistory(conversationId, currentMessageCreatedAt),
+        this.employeeRoles.list(tenantId),
+      ]);
       const messages = [
-        new SystemMessage(SYSTEM_INSTRUCTION),
+        new SystemMessage(this.buildSystemInstruction(roles)),
         ...history,
         new HumanMessage(content),
       ];
@@ -184,6 +193,25 @@ export class AssistantService {
       );
       return { replyText: FALLBACK_REPLY };
     }
+  }
+
+  // Appends the tenant's actual role catalog so the model can only ever pick
+  // a routeToRoleName that really exists — never omitted from SYSTEM_INSTRUCTION
+  // itself since it's tenant-specific and changes as roles are added/removed.
+  private buildSystemInstruction(
+    roles: Array<{ name: string; description?: string | null }>,
+  ): string {
+    if (roles.length === 0) return SYSTEM_INSTRUCTION;
+    const roleList = roles
+      .map((r) => `- ${r.name}${r.description ? `: ${r.description}` : ''}`)
+      .join('\n');
+    return `${SYSTEM_INSTRUCTION}
+
+EMPLOYEE ROLES
+This company has the following roles. When filing a request, only set file_request's routeToRoleName to
+one of these exact names, and only if it clearly and specifically owns this kind of request — otherwise
+omit it:
+${roleList}`;
   }
 
   private parseFileRequestResult(

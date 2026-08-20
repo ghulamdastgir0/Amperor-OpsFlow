@@ -37,7 +37,11 @@ export interface User {
   name: string;
   role: Role;
   department?: string | null;
+  slackUserId?: string | null;
   isActive: boolean;
+  employeeRoles?: EmployeeRole[];
+  // Only ever populated on GET /users/me — never a real password.
+  hasPassword?: boolean;
 }
 
 export interface FinanceDelegation {
@@ -169,6 +173,27 @@ export interface FinanceDashboard {
   spendByDepartment: Array<{ department: string; amount: number }>;
   statusCounts: Array<{ status: RequestStatus; count: number }>;
   recentTransactions: FinanceTransaction[];
+}
+
+export interface EmployeeRole {
+  id: string;
+  tenantId: string;
+  name: string;
+  description?: string | null;
+  createdAt: string;
+  memberCount: number;
+}
+
+export interface RoleBroadcast {
+  id: string;
+  tenantId: string;
+  senderId: string;
+  message: string;
+  recipientCount: number;
+  forwardedToAdmin: boolean;
+  createdAt: string;
+  sender: { id: string; name: string; email: string };
+  targets: Array<{ employeeRole: { id: string; name: string } }>;
 }
 
 export interface PlatformAdminProfile {

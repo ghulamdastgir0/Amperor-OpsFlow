@@ -90,6 +90,8 @@ model Tenant {
   auditLogs          AuditLog[]
   conversations      Conversation[]
   budgets            Budget[]
+  employeeRoles      EmployeeRole[]
+  roleBroadcasts     RoleBroadcast[]
 
   @@map("tenants")
 }
@@ -115,9 +117,76 @@ model User {
   approvals           Approval[]
   conversations       Conversation[]
   auditLogs           AuditLog[]
+  employeeRoles       UserEmployeeRole[]
+  sentBroadcasts      RoleBroadcast[]
 
   @@unique([tenantId, email])
   @@map("users")
+}
+
+// ─────────────────────────────────────────────
+// Employee Roles & Role-Targeted Broadcast Messaging
+// ─────────────────────────────────────────────
+
+// Admin-assignable department/function tags (e.g. "Human Resources (HR)",
+// "Finance & Accounting") — independent from the Role enum used for
+// permissions. A user can hold any number of these.
+model EmployeeRole {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  name        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  tenant           Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  members          UserEmployeeRole[]
+  broadcastTargets RoleBroadcastTarget[]
+
+  @@unique([tenantId, name])
+  @@map("employee_roles")
+}
+
+model UserEmployeeRole {
+  userId         String   @map("user_id") @db.Uuid
+  employeeRoleId String   @map("employee_role_id") @db.Uuid
+  assignedAt     DateTime @default(now()) @map("assigned_at") @db.Timestamptz
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  employeeRole EmployeeRole @relation(fields: [employeeRoleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, employeeRoleId])
+  @@map("user_employee_roles")
+}
+
+// A message a system admin sent to everyone holding one or more target
+// roles. If nobody reachable held any target role, it's redirected to the
+// tenant's admins instead (forwardedToAdmin) rather than silently dropped.
+model RoleBroadcast {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  senderId         String   @map("sender_id") @db.Uuid
+  message          String   @db.Text
+  recipientCount   Int      @map("recipient_count")
+  forwardedToAdmin Boolean  @default(false) @map("forwarded_to_admin")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  tenant  Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sender  User                  @relation(fields: [senderId], references: [id])
+  targets RoleBroadcastTarget[]
+
+  @@index([tenantId])
+  @@map("role_broadcasts")
+}
+
+model RoleBroadcastTarget {
+  broadcastId    String @map("broadcast_id") @db.Uuid
+  employeeRoleId String @map("employee_role_id") @db.Uuid
+
+  broadcast    RoleBroadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  employeeRole EmployeeRole  @relation(fields: [employeeRoleId], references: [id], onDelete: Cascade)
+
+  @@id([broadcastId, employeeRoleId])
+  @@map("role_broadcast_targets")
 }
 
 // Platform-level admin — deliberately NOT a User/Tenant relation. Sits above

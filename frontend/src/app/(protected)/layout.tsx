@@ -6,9 +6,9 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
   return (
     <RequireAuth>
       <RequireSlackConnected>
-        <div className="flex min-h-screen">
+        <div className="flex h-screen">
           <AppSidebar />
-          <main className="min-w-0 flex-1">
+          <main className="min-w-0 flex-1 overflow-y-auto">
             <div className="mx-auto max-w-6xl px-8 py-10">{children}</div>
           </main>
         </div>

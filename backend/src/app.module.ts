@@ -19,6 +19,7 @@ import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { LlmModule } from './modules/llm/llm.module';
 import { BudgetsModule } from './modules/budgets/budgets.module';
 import { PlatformAdminModule } from './modules/platform/platform-admin.module';
+import { EmployeeRolesModule } from './modules/employee-roles/employee-roles.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { PlatformAdminModule } from './modules/platform/platform-admin.module';
     LlmModule,
     BudgetsModule,
     PlatformAdminModule,
+    EmployeeRolesModule,
   ],
   controllers: [AppController],
   providers: [

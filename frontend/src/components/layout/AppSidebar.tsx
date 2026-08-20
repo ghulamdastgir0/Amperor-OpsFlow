@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutGrid, Bot, Inbox, Wallet, UserCog, ScrollText, LogOut, Sparkles } from "lucide-react";
+import { LayoutGrid, Bot, Inbox, Wallet, UserCog, ScrollText, Tags, LogOut, Sparkles } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { clearAuthToken } from "@/lib/api";
 import { Avatar } from "@/components/ui/Avatar";
@@ -19,6 +19,7 @@ const NAV_ITEMS = [
   { href: "/finance", label: "Finance", icon: Wallet, roles: FINANCE_ROLES },
   { href: "/admin/delegations", label: "Delegations", icon: UserCog, roles: ["SYSTEM_ADMIN"] as Role[] },
   { href: "/admin/policies", label: "Policies", icon: ScrollText, roles: ["SYSTEM_ADMIN"] as Role[] },
+  { href: "/admin/roles", label: "Roles & Messaging", icon: Tags, roles: ["SYSTEM_ADMIN"] as Role[] },
 ];
 
 export function AppSidebar() {
@@ -70,11 +71,16 @@ export function AppSidebar() {
 
       {user && (
         <div className="flex items-center gap-2.5 border-t border-border px-4 py-4">
-          <Avatar name={user.email} />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-foreground">{user.email}</p>
-            <p className="truncate text-xs text-muted">{user.role.replace(/_/g, " ")}</p>
-          </div>
+          <Link
+            href="/profile"
+            className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md -m-1.5 p-1.5 hover:bg-slate-50 dark:hover:bg-white/5"
+          >
+            <Avatar name={user.email} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium text-foreground">{user.email}</p>
+              <p className="truncate text-xs text-muted">{user.role.replace(/_/g, " ")}</p>
+            </div>
+          </Link>
           <button
             type="button"
             onClick={handleSignOut}

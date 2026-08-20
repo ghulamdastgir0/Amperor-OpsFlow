@@ -52,7 +52,7 @@ export function PolicyUploadForm({ onCreated }: { onCreated: (policy: PolicyDocu
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-      <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-slate-50/60 px-6 py-8 text-center hover:border-primary hover:bg-indigo-50/40">
+      <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-slate-50/60 px-6 py-8 text-center hover:border-primary hover:bg-indigo-50/40 dark:bg-white/[0.03] dark:hover:bg-indigo-500/10">
         <input
           ref={fileInputRef}
           type="file"

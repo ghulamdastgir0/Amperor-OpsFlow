@@ -4,6 +4,7 @@ import { RequestChannel } from '@prisma/client';
 import { z } from 'zod';
 import { PoliciesService } from '../../policies/policies.service';
 import { RequestsService } from '../../requests/requests.service';
+import { EmployeeRolesService } from '../../employee-roles/employee-roles.service';
 
 interface AgentContext {
   tenantId: string;
@@ -26,6 +27,7 @@ function getContext(config: RunnableConfig): AgentContext {
 export function buildAssistantTools(
   policies: PoliciesService,
   requests: RequestsService,
+  employeeRoles: EmployeeRolesService,
 ) {
   const searchPolicy = tool(
     async (input: { query: string }, config: RunnableConfig) => {
@@ -57,7 +59,10 @@ export function buildAssistantTools(
   );
 
   const fileRequest = tool(
-    async (input: { intentType: string }, config: RunnableConfig) => {
+    async (
+      input: { intentType: string; routeToRoleName?: string },
+      config: RunnableConfig,
+    ) => {
       const { tenantId, userId, rawPrompt } = getContext(config);
       const request = await requests.create(tenantId, userId, {
         channel: RequestChannel.assistant_ui,
@@ -65,6 +70,21 @@ export function buildAssistantTools(
         parsedIntent: input.intentType,
       });
       const routed = await requests.runPipeline(tenantId, request.id);
+
+      if (input.routeToRoleName) {
+        // Best-effort — never lets a routing miss fail the request itself.
+        await employeeRoles.notifyRoleForRequest(
+          tenantId,
+          input.routeToRoleName,
+          {
+            requesterId: userId,
+            requestId: request.id,
+            intentType: input.intentType,
+            rawPrompt,
+          },
+        );
+      }
+
       return JSON.stringify({ requestId: request.id, status: routed.status });
     },
     {
@@ -76,6 +96,12 @@ export function buildAssistantTools(
           .string()
           .describe(
             'SCREAMING_SNAKE_CASE label, e.g. EXPENSE_REIMBURSEMENT, PURCHASE_REQUEST, LEAVE_REQUEST',
+          ),
+        routeToRoleName: z
+          .string()
+          .optional()
+          .describe(
+            "If this request clearly belongs to one of the company's employee roles listed in the system prompt (e.g. a leave request matching 'Human Resources (HR)'), put that role's exact name here so it gets forwarded to whoever holds it. Omit if none clearly apply — don't guess.",
           ),
       }),
     },

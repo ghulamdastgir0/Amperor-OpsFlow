@@ -3,15 +3,21 @@
 Enterprise workflow orchestration platform per `SRS-OPS-AI-2026-V1.1`. NestJS backend +
 Next.js frontend, npm workspaces monorepo (`backend/`, `frontend/` at root — no `apps/` wrapper).
 
+> **Maintenance rule**: this file drifts fast — several sections here were already stale (marked
+> real functionality as "stubbed") before this note was added. At the end of any change that adds a
+> module, changes an architectural decision, flips something from stubbed to real, or fixes a
+> non-obvious bug/gotcha, update the relevant section of this file in the same session — don't leave
+> it for later. Small unrelated UI tweaks don't need an entry.
+
 ## Stack & structure
 
 ```
 backend/           NestJS 11, Prisma 6 (pinned — see below), PostgreSQL
   prisma/schema.prisma        Full data model
-  src/modules/                auth, users, tenants, requests, finance-delegations,
-                               assistant, slack, policies, audit-logs
+  src/modules/                auth, users, tenants, requests, finance-delegations, employee-roles,
+                               assistant, slack, policies, audit-logs, budgets, platform
 frontend/          Next.js 16 (App Router, Turbopack), Tailwind, axios (never fetch)
-  src/app/(protected)/        assistant, requests, admin/delegations — RBAC-gated
+  src/app/(protected)/        assistant, requests, finance, admin/{delegations,policies,roles} — RBAC-gated
   src/lib/api/                axios client + typed per-domain wrappers
 docker-compose.yml  local Postgres (optional — a native Windows Postgres may already be running)
 ```
@@ -64,21 +70,86 @@ Run: `npm install` at root, then `npm run dev:backend` / `npm run dev:frontend`.
 - **RBAC is enforced twice, deliberately**: `RolesGuard` on the backend is the real boundary;
   `<RequireAuth roles={[...]}>` on the frontend (wrapping the `(protected)` route group) is only a
   UX convenience that hides nav links / redirects — never trust it as security.
+- **Employee Roles are separate from the `Role` enum, on purpose**: `EmployeeRole` (see
+  `backend/src/modules/employee-roles/`) is an admin-defined, per-tenant catalog of department/function
+  tags (e.g. "Human Resources (HR)") that a user can hold any number of — distinct from `Role`
+  (`SYSTEM_ADMIN`/`FINANCE_APPROVER`/etc.), which is the single permission level `RolesGuard` checks.
+  There is no pre-seeded starting catalog (the old `POST /employee-roles/seed-defaults` was removed
+  2026-08-20) — a System Admin adds each entry manually, and `description` is now required, not
+  optional: it's what the assistant reads (via `AssistantService.buildSystemInstruction`, injected into
+  the system prompt every turn) to decide which role a filed request should route to, so an undescribed
+  role can't be routed to. `POST /employee-roles/suggest-description` lets an admin pull a description
+  straight from the tenant's own uploaded policy documents (`PoliciesService.findRelevantClauses`)
+  instead of writing one by hand. The admin UI's access-role picker (`frontend/.../admin/roles/page.tsx`
+  `ROLE_OPTIONS`) only offers `Employee`/`Finance Approver`/`System Admin` — `TEAM_LEAD` and
+  `DEPARTMENT_MANAGER` are still valid `Role` values (the manager-approval fallback in
+  `RequestsService.MANAGER_ROLES` and Finance/Budget guards still accept them) but aren't assignable
+  from that picker since no tenant has used them; `SYSTEM_ADMIN` covers that approval step by default.
+  A new/promoted `SYSTEM_ADMIN` is auto-assigned every existing `EmployeeRole`
+  (`UsersService.assignAllRolesIfAdmin`) so broadcasts and auto-routing always reach at least the
+  admins even before anyone else is tagged.
+- **Role-targeted broadcasts and LLM auto-routing share one delivery path**
+  (`EmployeeRolesService.deliverToAll`/admin-fallback logic): `POST /employee-roles/broadcast` is a
+  manual admin-composed Slack DM to everyone holding the picked role(s); `notifyRoleForRequest` is the
+  same delivery called automatically when the assistant's `file_request` tool sets `routeToRoleName`
+  (the model is given the tenant's live role catalog in the system prompt each turn — see
+  `AssistantService.buildSystemInstruction` — and told to only pick an exact existing name, never
+  guess). Both fall back to forwarding to the tenant's `SYSTEM_ADMIN`s if nobody reachable holds the
+  target role, rather than letting the message silently disappear, and both write a `RoleBroadcast`
+  row either way (`forwardedToAdmin` distinguishes the two cases) so `GET /employee-roles/broadcasts`
+  shows a unified history. Never lets a routing/delivery failure fail the underlying request — always
+  best-effort, caught and logged.
+- **Self-service profile lives at `GET/PATCH /users/me`, `PATCH /users/me/password`, `DELETE
+  /users/me/slack`** (`UsersController`/`UsersService`, frontend page at
+  `frontend/src/app/(protected)/profile/page.tsx`, linked from the avatar block at the bottom of
+  `AppSidebar`) — available to every role, not just `SYSTEM_ADMIN`; these routes are registered ahead
+  of `GET /users/:id` in the controller specifically so `id` never swallows `"me"`. `role` is
+  deliberately not editable here (only `updateRole`, admin-only, touches it). `UsersService.sanitize`
+  is the single place that strips `passwordHash` and derives `hasPassword` — every user-shaped
+  response (`create`, `findAll`, `findOne`, `getProfile`, `updateProfile`, `updateRole`, `unlinkSlack`)
+  goes through it now, specifically so the frontend can't get a response missing `hasPassword` and
+  have the profile page's password section flip from "Change password" back to "Set a password"
+  after an unrelated field save (real bug, caught while building this — the fix was centralizing
+  `hasPassword` into `sanitize` rather than computing it ad hoc in `getProfile` alone). Unlinking
+  Slack is blocked (`BadRequestException`) if the account has no password set, so a Slack-only user
+  can never lock themselves out.
 
 ## What's real vs. stubbed (don't assume otherwise)
 
-Real: auth (password + both Slack flows), RBAC, tenant CRUD + isolation, finance delegation
-grant/revoke/audit trail, request creation (web + Slack, with attachment download), Swagger docs.
+This section was significantly out of date until 2026-08-20 — it described the assistant, OCR, policy
+retrieval, and approval routing as stubs when they had already been implemented. Re-verify against the
+actual service code (not just this file) before relying on either list for something load-bearing.
 
-Stubbed (structurally wired, no actual logic):
-- `AssistantService.sendMessage` — replies with a canned string. No LLM call, no intent parsing.
-- `OcrService.extractFields` — returns an empty result. No real OCR/vision call.
-- `PoliciesService.findRelevantClauses` — returns `[]`. No RAG/vector retrieval.
-- Nothing advances a `Request.status` past `PENDING_POLICY_CHECK`, and no `Approval` rows are ever
-  created — the approval state machine tying `FinanceDelegation` thresholds to actual requests
-  doesn't exist yet.
+Real: auth (password + both Slack flows), RBAC, tenant CRUD + isolation, finance delegation
+grant/revoke/audit trail, request creation (web + Slack, with attachment download), Swagger docs,
+employee roles + broadcast/auto-routing (above).
+- `AssistantService` — a real LangGraph tool-calling agent over `ChatGoogleGenerativeAI` (Gemini,
+  `llm.model` config, default `gemini-2.5-flash`), with two tools (`search_policy`, `file_request`);
+  see `backend/src/modules/assistant/agent/`. Falls back to a canned reply (`FALLBACK_REPLY`) only if
+  the graph invocation itself throws.
+- `OcrService.extractFields` (`backend/src/modules/slack/ocr.service.ts`) — a real Gemini vision call
+  (`LlmService.generateJson`) that extracts merchant/amount/currency/line items/tax ID from an
+  uploaded receipt/invoice image or PDF.
+- `PoliciesService.findRelevantClauses` — real retrieval over `PolicyChunk` rows for the tenant (not a
+  full vector DB — check the current implementation for the actual matching method before assuming
+  embedding-based search).
+- The full approval state machine is implemented in `RequestsService`: `runPipeline` (policy citation +
+  amount check) routes a request through `PENDING_MANAGER_APPROVAL` → (`PENDING_FINANCE_APPROVAL` if a
+  `FinanceDelegation` covers the department/amount, else `ESCALATED`) → `APPROVED`/`REJECTED`, with an
+  `Approval` row and `AuditLog` entry recorded at every stage (`RequestsService.decide` and its
+  `decideManagerStage`/`decideFinanceStage`/`decideEscalatedStage` helpers).
+  **The amount check is a hard gate, not just a delegation lookup**: `runPipeline` sums each
+  attachment's OCR-extracted `totalAmount`; if that sum is `0` the request is set straight to
+  `COMPLETED` and never reaches `PENDING_MANAGER_APPROVAL` at all. Since attachments currently only
+  arrive via Slack file ingestion, any text-only request — including every request filed through the
+  Assistant UI, and any Slack leave/general request with no receipt attached — auto-completes with no
+  manager or finance decision. Don't assume "filed a request" implies "went through approval"; check
+  whether it carried a priced attachment. `ESCALATED` is only ever resolved by a `SYSTEM_ADMIN`,
+  directly to `APPROVED`/`REJECTED` (`decideEscalatedStage`) — it does not return to a pending stage.
+
+Still stubbed:
 - Slack webhook signature verification (`SLACK_SIGNING_SECRET`) is TODO'd, not implemented — the
-  `/slack/events` endpoint currently trusts any POST body.
+  `/slack/events` endpoint currently trusts any POST body (see the `TODO` in `slack.controller.ts`).
 
 ## Windows dev-environment gotchas (hit repeatedly this session — read before debugging "it's not updating")
 
@@ -119,3 +190,18 @@ Stubbed (structurally wired, no actual logic):
 
 - axios everywhere for HTTP (frontend: `src/lib/api/client.ts`; backend outbound calls: `@nestjs/axios`'s `HttpModule`) — never `fetch`.
 - No comments explaining *what* code does; only *why*, for non-obvious constraints (see existing files for the calibration).
+- **Dark mode is CSS-variable-based, not Tailwind's `dark:` class alone**: theme tokens like
+  `bg-surface`, `border-border`, `text-foreground`/`text-muted` are defined to already swap with the
+  theme and need no `dark:` prefix. Raw Tailwind palette colors (`bg-slate-50`, `bg-indigo-50`, etc.)
+  do **not** auto-swap — pair every one used outside a token with an explicit `dark:` variant (see
+  `EmptyState.tsx`'s `bg-slate-50 dark:bg-white/[0.03]` for the pattern), or it renders as a light
+  patch inside an otherwise dark page. Caught this exact bug twice: `PolicyUploadForm.tsx`'s dropzone,
+  and `Field.tsx`'s shared `disabled:bg-slate-50` (only surfaced once something actually used
+  `disabled` on an `Input` — the profile page's read-only Email/Access role fields) — check every
+  `disabled:`/`hover:`/etc. variant on a raw color, not just the base state, when auditing a component.
+- **The `(protected)` layout is a fixed sidebar + independently scrolling content pane**
+  (`frontend/src/app/(protected)/layout.tsx`): the outer flex wrapper is `h-screen` (not
+  `min-h-screen`) and `<main>` carries `overflow-y-auto` — `AppSidebar` is `h-screen` with no scroll
+  container of its own. If a page's content grows past viewport height, only `<main>` should scroll;
+  don't put `min-h-screen` back on the outer wrapper, it makes the whole document scroll and drags the
+  sidebar away with it.
