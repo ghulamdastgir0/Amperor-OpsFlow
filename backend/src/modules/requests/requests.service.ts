@@ -23,8 +23,10 @@ import { FinanceDelegationsService } from '../finance-delegations/finance-delega
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { OcrService } from '../slack/ocr.service';
 import { BudgetsService } from '../budgets/budgets.service';
+import { StorageService } from '../../common/storage/storage.service';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { CreateRequestDto } from './dto/create-request.dto';
+import { randomUUID } from 'crypto';
 
 // Finance/Admin may decide a request whose amount is *stated* (chat text,
 // unverified) without any FinanceDelegation matching it — delegation
@@ -35,9 +37,9 @@ const FINANCE_DECIDE_ROLES = new Set<Role>([
   Role.SYSTEM_ADMIN,
 ]);
 
-// fileData is deliberately excluded here — it's the raw proof-image bytes,
-// fetched separately via getAttachmentFile so normal request-detail reads
-// don't ship large binaries (and Buffers) through the JSON envelope.
+// storagePath is deliberately excluded here — the actual proof-image bytes
+// live in GCS and are only fetched via getAttachmentFile, so normal
+// request-detail reads never need to touch storage at all.
 const DETAIL_INCLUDE = {
   attachments: {
     select: {
@@ -93,6 +95,7 @@ export class RequestsService {
     private readonly httpService: HttpService,
     private readonly ocr: OcrService,
     private readonly budgets: BudgetsService,
+    private readonly storage: StorageService,
   ) {}
 
   async create(tenantId: string, requesterId: string, dto: CreateRequestDto) {
@@ -562,13 +565,17 @@ export class RequestsService {
     const attachmentIds: string[] = [];
     for (const file of files) {
       const parsed = await this.ocr.extractFields(file.buffer, file.mimetype);
+      const id = randomUUID();
+      const storagePath = `attachments/${tenantId}/${requestId}/${id}-${file.originalname}`;
+      await this.storage.upload(file.buffer, storagePath, file.mimetype);
       const attachment = await this.prisma.attachment.create({
         data: {
+          id,
           requestId,
           source: AttachmentSource.assistant_ui,
           fileName: file.originalname,
           mimeType: file.mimetype,
-          fileData: Uint8Array.from(file.buffer),
+          storagePath,
           merchantName: parsed.merchantName,
           // Deliberately NOT forced to request.statedAmount — this is a raw
           // record of what OCR found on this specific receipt (may be null,
@@ -622,9 +629,9 @@ export class RequestsService {
     }
     const attachment = await this.prisma.attachment.findFirst({
       where: { id: attachmentId, requestId },
-      select: { fileData: true, mimeType: true, fileName: true },
+      select: { storagePath: true, mimeType: true, fileName: true },
     });
-    if (!attachment?.fileData) {
+    if (!attachment?.storagePath) {
       throw new NotFoundException('File not found');
     }
     return attachment;

@@ -3,7 +3,9 @@ import { PDFParse } from 'pdf-parse';
 import { Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmbeddingService } from '../llm/embedding.service';
+import { StorageService } from '../../common/storage/storage.service';
 import { CreatePolicyDocumentDto } from './dto/create-policy-document.dto';
+import { randomUUID } from 'crypto';
 
 // A PolicyDocument.restricted document (financial/budget detail, etc.) is
 // only ever surfaced in retrieval results for these roles — everyone else
@@ -34,11 +36,16 @@ export class PoliciesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly embeddings: EmbeddingService,
+    private readonly storage: StorageService,
   ) {}
 
-  async create(tenantId: string, dto: CreatePolicyDocumentDto) {
+  async create(
+    tenantId: string,
+    dto: CreatePolicyDocumentDto,
+    extra?: { id: string; storagePath: string },
+  ) {
     const document = await this.prisma.policyDocument.create({
-      data: { tenantId, ...dto },
+      data: { tenantId, ...dto, ...extra },
     });
 
     try {
@@ -72,7 +79,24 @@ export class PoliciesService {
         'No readable text could be extracted from this file.',
       );
     }
-    return this.create(tenantId, { ...meta, content });
+    // Archive the original file too — `content` above is only the extracted
+    // text used for RAG search; the source PDF/txt/md itself is otherwise
+    // discarded once extraction succeeds.
+    const id = randomUUID();
+    const storagePath = `policies/${tenantId}/${id}-${file.originalname}`;
+    await this.storage.upload(file.buffer, storagePath, file.mimetype);
+    return this.create(tenantId, { ...meta, content }, { id, storagePath });
+  }
+
+  async getFile(tenantId: string, id: string) {
+    const document = await this.prisma.policyDocument.findFirst({
+      where: { id, tenantId },
+      select: { storagePath: true, title: true },
+    });
+    if (!document?.storagePath) {
+      throw new NotFoundException('No source file stored for this document');
+    }
+    return document;
   }
 
   private async extractText(file: {

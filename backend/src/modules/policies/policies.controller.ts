@@ -5,10 +5,12 @@ import {
   Get,
   Param,
   Post,
+  Res,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
 import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -17,6 +19,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CreatePolicyDocumentDto } from './dto/create-policy-document.dto';
 import { UploadPolicyFileDto } from './dto/upload-policy-file.dto';
 import { PoliciesService } from './policies.service';
+import { StorageService } from '../../common/storage/storage.service';
 
 const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
 
@@ -24,7 +27,10 @@ const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
 @ApiBearerAuth('access-token')
 @Controller('policies')
 export class PoliciesController {
-  constructor(private readonly policiesService: PoliciesService) {}
+  constructor(
+    private readonly policiesService: PoliciesService,
+    private readonly storage: StorageService,
+  ) {}
 
   @Post()
   @Roles(Role.SYSTEM_ADMIN)
@@ -69,5 +75,23 @@ export class PoliciesController {
   @Roles(Role.SYSTEM_ADMIN)
   findOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.policiesService.findOne(user.tenantId, id);
+  }
+
+  // Streams back the original uploaded file (PDF/txt/md), when one was
+  // archived at upload time — bypasses the JSON envelope like the requests
+  // attachment-file route, since this is a binary body.
+  @Get(':id/file')
+  @Roles(Role.SYSTEM_ADMIN)
+  async getFile(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const document = await this.policiesService.getFile(user.tenantId, id);
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${encodeURIComponent(document.title)}"`,
+    );
+    this.storage.streamTo(document.storagePath!, res);
   }
 }

@@ -24,4 +24,7 @@ export default () => ({
     // Embeddings run locally via EmbeddingService (Xenova/all-MiniLM-L6-v2, transformers.js) —
     // not Gemini. No API key or config needed there.
   },
+  storage: {
+    bucket: process.env.GCS_BUCKET_NAME,
+  },
 });

@@ -19,21 +19,25 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalInterceptors(new TransformInterceptor());
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('AI Corporate Operations Agent API')
-    .setDescription(
-      'Enterprise Autonomous Workflow Orchestration & Exception Resolution Engine — SRS-OPS-AI-2026-V1.1',
-    )
-    .setVersion('1.1')
-    .addBearerAuth(
-      { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
-      'access-token',
-    )
-    .build();
-  const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('docs', app, swaggerDocument, {
-    swaggerOptions: { persistAuthorization: true },
-  });
+  // Swagger exposes every route/DTO with no auth of its own — fine for local
+  // dev, not something to leave publicly browsable on a deployed backend.
+  if (config.get<string>('nodeEnv') !== 'production') {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('AI Corporate Operations Agent API')
+      .setDescription(
+        'Enterprise Autonomous Workflow Orchestration & Exception Resolution Engine — SRS-OPS-AI-2026-V1.1',
+      )
+      .setVersion('1.1')
+      .addBearerAuth(
+        { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+        'access-token',
+      )
+      .build();
+    const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('docs', app, swaggerDocument, {
+      swaggerOptions: { persistAuthorization: true },
+    });
+  }
 
   const port = config.get<number>('port') ?? 4000;
   await app.listen(port);

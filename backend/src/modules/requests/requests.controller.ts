@@ -20,6 +20,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { DecideRequestDto } from './dto/decide-request.dto';
 import { RequestsService } from './requests.service';
+import { StorageService } from '../../common/storage/storage.service';
 
 const MAX_PROOF_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
 const MAX_PROOF_FILES = 10;
@@ -28,7 +29,10 @@ const MAX_PROOF_FILES = 10;
 @ApiBearerAuth('access-token')
 @Controller('requests')
 export class RequestsController {
-  constructor(private readonly requestsService: RequestsService) {}
+  constructor(
+    private readonly requestsService: RequestsService,
+    private readonly storage: StorageService,
+  ) {}
 
   @Post()
   async create(
@@ -125,6 +129,6 @@ export class RequestsController {
       'Content-Disposition',
       `inline; filename="${encodeURIComponent(attachment.fileName ?? 'proof')}"`,
     );
-    res.send(attachment.fileData);
+    this.storage.streamTo(attachment.storagePath!, res);
   }
 }

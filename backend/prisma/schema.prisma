@@ -6,8 +6,14 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Supabase's pooled connection (port 6543, pgbouncer transaction mode)
+  // can't hold the session-level advisory lock `prisma migrate` needs — it
+  // just hangs. `directUrl` (port 5432, unpooled) is what the migration
+  // engine actually uses for migrate dev/deploy/status; `url` above stays
+  // the pooled connection the app uses at runtime.
+  directUrl = env("DIRECT_URL")
 }
 
 // ─────────────────────────────────────────────
@@ -306,7 +312,12 @@ model Attachment {
   taxId          String?          @map("tax_id")
   documentDate   DateTime?        @map("document_date") @db.Date
   ocrRawText     String?          @map("ocr_raw_text") @db.Text
+  // `fileData` is kept only as a migration safety net during the move to GCS
+  // (see StorageService) — `storagePath` is the source of truth for new
+  // uploads and gets dropped in a follow-up migration once the bucket
+  // backfill is verified.
   fileData       Bytes?           @map("file_data")
+  storagePath    String?          @map("storage_path")
   createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz
 
   request Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
@@ -346,6 +357,10 @@ model PolicyDocument {
   sourceUrl  String?  @map("source_url")
   content    String   @db.Text
   version    String   @default("1.0")
+  // GCS object path to the original uploaded file (PDF/txt/md), when one was
+  // uploaded via /policies/upload — null for documents created from pasted
+  // text directly, and for anything uploaded before this field existed.
+  storagePath String? @map("storage_path")
   // Restricted to FINANCE_APPROVER/SYSTEM_ADMIN — excluded from search_policy
   // and policy-citation results for everyone else, so a document containing
   // real financial/budget detail isn't surfaced to a plain employee via chat

@@ -1,0 +1,81 @@
+substitutions:
+  _REGION: australia-southeast1
+  _REPO: opsflow
+
+steps:
+  - id: build-backend
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - backend/Dockerfile
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/backend:$SHORT_SHA
+      - .
+
+  - id: push-backend
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/backend:$SHORT_SHA
+    waitFor: [build-backend]
+
+  - id: deploy-backend
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - opsflow-backend
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/backend:$SHORT_SHA
+      - --region=${_REGION}
+      - --quiet
+    waitFor: [push-backend]
+
+  # Frontend bakes NEXT_PUBLIC_API_URL in at build time, so it needs the
+  # backend's URL (stable across deploys once the service exists) before it
+  # can build.
+  - id: get-backend-url
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        gcloud run services describe opsflow-backend --region=${_REGION} --format="value(status.url)" > /workspace/backend_url.txt
+    waitFor: [deploy-backend]
+
+  - id: build-frontend
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        BACKEND_URL=$$(cat /workspace/backend_url.txt)
+        docker build -f frontend/Dockerfile --build-arg NEXT_PUBLIC_API_URL=$${BACKEND_URL}/api/v1 -t ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/frontend:$SHORT_SHA .
+    waitFor: [get-backend-url]
+
+  - id: push-frontend
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/frontend:$SHORT_SHA
+    waitFor: [build-frontend]
+
+  - id: deploy-frontend
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - opsflow-frontend
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/frontend:$SHORT_SHA
+      - --region=${_REGION}
+      - --quiet
+    waitFor: [push-frontend]
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/backend:$SHORT_SHA
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/frontend:$SHORT_SHA
+
+options:
+  logging: CLOUD_LOGGING_ONLY

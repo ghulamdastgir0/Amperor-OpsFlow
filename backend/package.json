@@ -22,9 +22,11 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
-    "seed:platform-admin": "ts-node -r tsconfig-paths/register src/scripts/seed-platform-admin.ts"
+    "seed:platform-admin": "ts-node -r tsconfig-paths/register src/scripts/seed-platform-admin.ts",
+    "backfill:attachment-storage": "ts-node -r tsconfig-paths/register src/scripts/backfill-attachment-storage.ts"
   },
   "dependencies": {
+    "@google-cloud/storage": "^8.0.1",
     "@langchain/core": "^1.2.8",
     "@langchain/google-genai": "^2.2.0",
     "@langchain/langgraph": "^1.4.10",

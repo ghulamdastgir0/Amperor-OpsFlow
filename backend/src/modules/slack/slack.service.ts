@@ -8,11 +8,13 @@ import { TenantsService } from '../tenants/tenants.service';
 import { AssistantService } from '../assistant/assistant.service';
 import { RequestsService } from '../requests/requests.service';
 import { OcrService } from './ocr.service';
+import { StorageService } from '../../common/storage/storage.service';
 import {
   SlackEventDto,
   SlackEventPayloadDto,
   SlackFileDto,
 } from './dto/slack-event.dto';
+import { randomUUID } from 'crypto';
 
 interface SlackAuthTestResponse {
   ok: boolean;
@@ -40,6 +42,7 @@ export class SlackService {
     private readonly ocr: OcrService,
     private readonly assistant: AssistantService,
     private readonly requests: RequestsService,
+    private readonly storage: StorageService,
   ) {}
 
   // Ingestion Pipeline Sequence (SRS Section 5.1) + query routing:
@@ -103,7 +106,7 @@ export class SlackService {
       });
 
       for (const file of event.files) {
-        await this.ingestFile(botToken, request.id, file);
+        await this.ingestFile(botToken, tenant.id, request.id, file);
       }
 
       if (event.channel) {
@@ -226,6 +229,7 @@ export class SlackService {
   // Step 3: Secure Download via bot token
   private async ingestFile(
     botToken: string,
+    tenantId: string,
     requestId: string,
     file: SlackFileDto,
   ) {
@@ -240,15 +244,25 @@ export class SlackService {
     // Step 4: Multimodal & OCR Parsing
     const parsed = await this.ocr.extractFields(fileBuffer, file.mimetype);
 
+    // Persist the actual bytes — previously only metadata was saved here,
+    // leaving Slack-sourced attachments with nothing for the download route
+    // to serve (Slack's own private-download URL requires the bot token and
+    // isn't something the frontend can hit directly).
+    const id = randomUUID();
+    const storagePath = `attachments/${tenantId}/${requestId}/${id}-${file.name}`;
+    await this.storage.upload(fileBuffer, storagePath, file.mimetype);
+
     // Step 5: attach parsed fields to the RequestIntent for policy matching
     return this.prisma.attachment.create({
       data: {
+        id,
         requestId,
         source: 'slack',
         slackFileId: file.id,
         urlPrivateDownload: file.url_private_download,
         fileName: file.name,
         mimeType: file.mimetype,
+        storagePath,
         merchantName: parsed.merchantName,
         totalAmount: parsed.totalAmount,
         currency: parsed.currency,
