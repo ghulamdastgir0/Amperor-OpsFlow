@@ -1,5 +1,5 @@
 import { RequestChannel } from '@prisma/client';
-import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional, IsPositive, IsString } from 'class-validator';
 
 export class CreateRequestDto {
   @IsEnum(RequestChannel)
@@ -11,4 +11,15 @@ export class CreateRequestDto {
   @IsString()
   @IsOptional()
   parsedIntent?: string;
+
+  // LLM-extracted, unverified amount mentioned in chat — see Request.statedAmount.
+  @IsNumber()
+  @IsPositive()
+  @IsOptional()
+  statedAmount?: number;
+
+  // LLM-classified budget category this expense counts against — see Request.budgetDepartment.
+  @IsString()
+  @IsOptional()
+  budgetDepartment?: string;
 }

@@ -110,7 +110,7 @@ export class SlackService {
         await this.postMessage(
           botToken,
           event.channel,
-          `Got it — I'm processing your request (ref \`${request.id}\`).`,
+          `Got it — I'm processing your request.`,
           threadTs,
         );
       }

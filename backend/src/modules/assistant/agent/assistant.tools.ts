@@ -5,6 +5,17 @@ import { z } from 'zod';
 import { PoliciesService } from '../../policies/policies.service';
 import { RequestsService } from '../../requests/requests.service';
 import { EmployeeRolesService } from '../../employee-roles/employee-roles.service';
+import { BudgetsService } from '../../budgets/budgets.service';
+
+// RBAC tier for budget visibility through the assistant: System Admin gets
+// everything, Finance Approver gets finance access plus everything an
+// employee has, plain Employee gets neither — see get_budget_summary below.
+// This is the authoritative check; the system prompt also tells the model
+// not to bother calling the tool for an employee, but that's guidance only.
+const FINANCE_VISIBLE_ROLES = new Set<Role>([
+  Role.FINANCE_APPROVER,
+  Role.SYSTEM_ADMIN,
+]);
 
 interface AgentContext {
   tenantId: string;
@@ -29,6 +40,7 @@ export function buildAssistantTools(
   policies: PoliciesService,
   requests: RequestsService,
   employeeRoles: EmployeeRolesService,
+  budgets: BudgetsService,
 ) {
   const searchPolicy = tool(
     async (input: { query: string }, config: RunnableConfig) => {
@@ -62,7 +74,12 @@ export function buildAssistantTools(
 
   const fileRequest = tool(
     async (
-      input: { intentType: string; routeToRoleName?: string },
+      input: {
+        intentType: string;
+        routeToRoleName?: string;
+        statedAmount?: number;
+        budgetDepartment?: string;
+      },
       config: RunnableConfig,
     ) => {
       const { tenantId, userId, rawPrompt } = getContext(config);
@@ -70,6 +87,8 @@ export function buildAssistantTools(
         channel: RequestChannel.assistant_ui,
         rawPrompt,
         parsedIntent: input.intentType,
+        statedAmount: input.statedAmount,
+        budgetDepartment: input.budgetDepartment,
       });
       const routed = await requests.runPipeline(tenantId, request.id);
 
@@ -105,9 +124,48 @@ export function buildAssistantTools(
           .describe(
             "If this request clearly belongs to one of the company's employee roles listed in the system prompt (e.g. a leave request matching 'Human Resources (HR)'), put that role's exact name here so it gets forwarded to whoever holds it. Omit if none clearly apply — don't guess.",
           ),
+        statedAmount: z
+          .number()
+          .min(0.01)
+          .optional()
+          .describe(
+            'If the user stated a specific dollar amount for this request in their message (e.g. "$100 for AC repair"), put the plain number here (no currency symbol). Omit entirely if no amount was mentioned — do not guess or estimate one.',
+          ),
+        budgetDepartment: z
+          .string()
+          .optional()
+          .describe(
+            'If this expense clearly matches one of the BUDGET CATEGORIES listed in the system prompt (e.g. "new PCs" matching "Office accessories", "AC repair" matching "Maintenance"), put that exact category name here so spend is tracked against the right budget. This is about what the money is FOR, not which department the requester belongs to — omit if no category clearly fits, do not guess.',
+          ),
       }),
     },
   );
 
-  return [searchPolicy, fileRequest];
+  const getBudgetSummary = tool(
+    async (_input: Record<string, never>, config: RunnableConfig) => {
+      const { tenantId, userRole } = getContext(config);
+      if (!FINANCE_VISIBLE_ROLES.has(userRole)) {
+        return "You don't have access to budget figures — only a Finance Approver or System Admin can view these. If you need to spend against a budget, file a request instead and it'll be routed for approval.";
+      }
+      const dashboard = await budgets.getDashboard(tenantId);
+      return JSON.stringify({
+        totals: dashboard.totals,
+        byDepartment: dashboard.budgets.map((b) => ({
+          department: b.departmentScope,
+          allocated: Number(b.allocatedAmount),
+          spent: b.spent,
+          reserved: b.reserved,
+          remaining: b.remaining,
+        })),
+      });
+    },
+    {
+      name: 'get_budget_summary',
+      description:
+        "Look up live department budget figures (allocated, spent, reserved pending proof, remaining) for this tenant. Only Finance Approver and System Admin can see real numbers — the tool enforces this itself and returns a plain refusal for anyone else, which you should relay honestly rather than rephrasing as something you decided.",
+      schema: z.object({}),
+    },
+  );
+
+  return [searchPolicy, fileRequest, getBudgetSummary];
 }

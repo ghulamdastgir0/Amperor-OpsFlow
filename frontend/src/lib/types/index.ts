@@ -124,6 +124,9 @@ export interface OpsRequest {
   executionSteps?: ExecutionStep[];
   policyCitations?: PolicyCitation[];
   approvals?: Approval[];
+  // Present only on the response to an approval that used up the entire
+  // remaining budget for its department/category — see RequestsService.
+  budgetWarning?: string;
 }
 
 export interface Conversation {
@@ -155,6 +158,7 @@ export interface Budget {
 
 export interface BudgetWithSpend extends Budget {
   spent: number;
+  reserved: number;
   remaining: number;
 }
 
@@ -168,12 +172,22 @@ export interface FinanceTransaction {
   decidedAt?: string | null;
 }
 
+export interface FinanceReservation {
+  requestId: string;
+  requesterName: string;
+  department: string;
+  intentType: string;
+  amount: number;
+  decidedAt?: string | null;
+}
+
 export interface FinanceDashboard {
   budgets: BudgetWithSpend[];
-  totals: { allocated: number; spent: number; remaining: number };
+  totals: { allocated: number; spent: number; reserved: number; remaining: number };
   spendByDepartment: Array<{ department: string; amount: number }>;
   statusCounts: Array<{ status: RequestStatus; count: number }>;
   recentTransactions: FinanceTransaction[];
+  pendingProof: FinanceReservation[];
 }
 
 export interface EmployeeRole {

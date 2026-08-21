@@ -260,6 +260,19 @@ model Request {
   parsedIntent   String         @map("parsed_intent")
   status         RequestStatus  @default(DRAFT)
   attachmentUrls Json           @default("[]") @map("attachment_urls")
+  // LLM-extracted dollar amount stated in chat text, unverified (no receipt).
+  // Distinct from an Attachment's OCR-extracted totalAmount, which is the
+  // real/verified figure. Drives the "reserve now, prove later" finance
+  // path — routes straight to PENDING_FINANCE_APPROVAL when set and no
+  // attachment amount exists yet.
+  statedAmount   Decimal?       @map("stated_amount") @db.Decimal(12, 2)
+  // Which Budget.departmentScope this expense counts against — set by the
+  // assistant at filing time (matched against the tenant's actual budget
+  // categories), independent of the requester's own department. A "$100 for
+  // new PCs" request should hit the "Office accessories" budget regardless
+  // of which employee filed it; falls back to the requester's department
+  // (old behavior) when the assistant couldn't confidently classify it.
+  budgetDepartment String?      @map("budget_department")
   createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz
 
   tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -293,6 +306,7 @@ model Attachment {
   taxId          String?          @map("tax_id")
   documentDate   DateTime?        @map("document_date") @db.Date
   ocrRawText     String?          @map("ocr_raw_text") @db.Text
+  fileData       Bytes?           @map("file_data")
   createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz
 
   request Request @relation(fields: [requestId], references: [id], onDelete: Cascade)

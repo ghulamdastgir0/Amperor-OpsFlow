@@ -124,7 +124,7 @@ export default function Home() {
                   <li key={r.id}>
                     <Link
                       href={`/requests/${r.id}`}
-                      className="flex items-start justify-between gap-3 rounded-lg px-2 py-1.5 -mx-2 hover:bg-slate-50"
+                      className="flex items-start justify-between gap-3 rounded-lg px-2 py-1.5 -mx-2 hover:bg-slate-50 dark:hover:bg-white/5"
                     >
                       <span className="min-w-0 flex-1 truncate text-sm text-foreground">
                         {r.parsedIntent || r.rawPrompt}

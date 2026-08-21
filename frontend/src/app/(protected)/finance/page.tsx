@@ -9,6 +9,7 @@ import { BudgetSummary } from "@/components/finance/BudgetSummary";
 import { BudgetForm } from "@/components/finance/BudgetForm";
 import { AnalyticsSummary } from "@/components/finance/AnalyticsSummary";
 import { TransactionHistory } from "@/components/finance/TransactionHistory";
+import { PendingProofList } from "@/components/finance/PendingProofList";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { SkeletonStatRow } from "@/components/ui/Skeleton";
@@ -46,6 +47,8 @@ export default function FinancePage() {
       {dashboard && (
         <div className="flex flex-col gap-10">
           <BudgetSummary dashboard={dashboard} />
+
+          <PendingProofList reservations={dashboard.pendingProof} />
 
           {user?.role === "SYSTEM_ADMIN" && (
             <Card>

@@ -6,7 +6,7 @@ import { RequestsModule } from '../requests/requests.module';
 import { LlmModule } from '../llm/llm.module';
 import { SlackService } from './slack.service';
 import { SlackController } from './slack.controller';
-import { OcrService } from './ocr.service';
+import { OcrModule } from './ocr.module';
 
 @Module({
   imports: [
@@ -15,8 +15,9 @@ import { OcrService } from './ocr.service';
     AssistantModule,
     RequestsModule,
     LlmModule,
+    OcrModule,
   ],
   controllers: [SlackController],
-  providers: [SlackService, OcrService],
+  providers: [SlackService],
 })
 export class SlackModule {}

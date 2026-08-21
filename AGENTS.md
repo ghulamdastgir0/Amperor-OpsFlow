@@ -150,6 +150,49 @@ Run: `npm install` at root, then `npm run dev:backend` / `npm run dev:frontend`.
   `hasPassword` into `sanitize` rather than computing it ad hoc in `getProfile` alone). Unlinking
   Slack is blocked (`BadRequestException`) if the account has no password set, so a Slack-only user
   can never lock themselves out.
+- **Stated (unverified) amounts now get a real decision instead of silently auto-completing (added
+  2026-08-21)**: `Request.statedAmount` — an LLM-extracted, unverified dollar figure from chat text
+  (`file_request`'s `statedAmount` param) — is a second, independent amount signal alongside the
+  attachment-derived (OCR-verified) one. In `RequestsService.runPipeline`, when there's no verified
+  attachment amount but `statedAmount` is set, the request routes straight to
+  `PENDING_FINANCE_APPROVAL` — skipping the manager stage entirely (this tenant model only really uses
+  Employee/Finance Approver/System Admin) — instead of the old behavior of marking it `COMPLETED` with
+  no decision. `decideFinanceStage` branches on `hasVerifiedAttachment`: a *verified* amount still
+  requires an actual matching `FinanceDelegation` (or `SYSTEM_ADMIN`) exactly as before; an *unverified*
+  one only requires holding `FINANCE_APPROVER` or `SYSTEM_ADMIN` — no delegation needed, since requiring
+  one would make "if no finance manager exists, admin handles it" impossible when no delegations are
+  configured (the common case). Approving an unverified-amount request doesn't create any new
+  reservation record — it's implicit: `BudgetsService.getReservations` finds it directly (`APPROVED`,
+  `statedAmount` set, zero attachments) and reports it as "reserved" on the dashboard alongside
+  allocated/spent/remaining. `RequestsService.attachProof` (Finance/Admin only, `POST
+  /requests/:id/proof`) is how it graduates to spent: it runs the same OCR pipeline Slack attachments
+  use (`OcrService`, now split into its own `OcrModule` — see below), creates a real `Attachment`, and
+  sets the request to `COMPLETED`. Nothing else needs to change on the budget side for that
+  graduation — `getReservations`'s `attachments: { none: {} }` filter naturally stops matching it the
+  moment a real attachment exists, and `getTransactions` (which already existed) picks it up as spent.
+  A given dollar is therefore always counted as reserved OR spent, never both, without any explicit
+  state machine for it.
+- **`OcrService` was split out of `SlackModule` into its own `OcrModule`** (`backend/src/modules/slack/ocr.module.ts`,
+  file itself unmoved) specifically so `RequestsModule` could use it too (for `attachProof`) without a
+  circular import — `SlackModule` already imports `RequestsModule`. If you need OCR somewhere new, import
+  `OcrModule`, not `SlackModule`.
+- **`RequestsService.decide()` sends the requester a Slack DM on a terminal outcome** (`APPROVED` or
+  `REJECTED`, from any stage) via a small self-contained `notifyRequesterOfDecision`/`resolveBotToken`
+  pair (same shape as `EmployeeRolesService`'s, duplicated rather than shared to avoid a cross-module
+  dependency — `RequestsModule` importing `EmployeeRolesModule` would work today but isn't worth the
+  coupling for ~15 lines). Best-effort, like every other Slack-send in this codebase — never throws,
+  never fails the decision itself.
+- **The assistant never shows a request's internal UUID to the user, on purpose** — `AssistantService.orchestrate`
+  no longer appends `(ref ..., status: ...)` to replies (it used to); `SlackService`'s attachment-flow ack
+  no longer includes it either. The ID is still tracked internally (`Message.requestId`) for the
+  execution-timeline/citation viewer — just never surfaced in chat text. `SYSTEM_INSTRUCTION` explicitly
+  tells the model not to quote the ID even though it can see it in the raw tool result.
+- **Foreign-key protection on `Approval.approverId` is `RESTRICT`, not `CASCADE`, and that's correct**:
+  deleting a `Tenant` (or `User`) that has ever approved something will fail with a Postgres FK error
+  unless you delete the `Approval` rows first — hit this cleaning up a QA tenant with real approvals in
+  it for the first time this session. Don't "fix" this by adding cascade — losing audit records when a
+  user is deleted is the actual bug; delete `Approval` rows explicitly first instead (see any `_qa-*.ts`
+  cleanup for the pattern: `deleteMany` approvals by `requestId` before deleting the tenant).
 
 ## What's real vs. stubbed (don't assume otherwise)
 

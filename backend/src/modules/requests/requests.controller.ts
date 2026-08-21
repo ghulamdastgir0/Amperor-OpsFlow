@@ -1,11 +1,28 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { RequestStatus } from '@prisma/client';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  Res,
+  UploadedFiles,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
+import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
+import { Role, RequestStatus } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { DecideRequestDto } from './dto/decide-request.dto';
 import { RequestsService } from './requests.service';
+
+const MAX_PROOF_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
+const MAX_PROOF_FILES = 10;
 
 @ApiTags('Requests')
 @ApiBearerAuth('access-token')
@@ -66,5 +83,48 @@ export class RequestsController {
       dto.decision,
       dto.reason,
     );
+  }
+
+  // Finance/Admin closes out an approved-but-unverified request by attaching
+  // the actual receipt(s)/invoice(s) — see RequestsService.attachProof.
+  @Post(':id/proof')
+  @Roles(Role.FINANCE_APPROVER, Role.SYSTEM_ADMIN)
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(
+    FilesInterceptor('files', MAX_PROOF_FILES, { limits: { fileSize: MAX_PROOF_SIZE_BYTES } }),
+  )
+  attachProof(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @UploadedFiles() files: Express.Multer.File[],
+  ) {
+    if (!files || files.length === 0) {
+      throw new BadRequestException('No file was uploaded.');
+    }
+    return this.requestsService.attachProof(user.tenantId, user, id, files);
+  }
+
+  // Serves a proof attachment's raw bytes (image/PDF) so it can be viewed —
+  // bypasses the global TransformInterceptor's JSON envelope on purpose,
+  // this is a binary body, not JSON.
+  @Get(':id/attachments/:attachmentId/file')
+  async getAttachmentFile(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Param('attachmentId') attachmentId: string,
+    @Res() res: Response,
+  ) {
+    const attachment = await this.requestsService.getAttachmentFile(
+      user.tenantId,
+      user,
+      id,
+      attachmentId,
+    );
+    res.setHeader('Content-Type', attachment.mimeType ?? 'application/octet-stream');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${encodeURIComponent(attachment.fileName ?? 'proof')}"`,
+    );
+    res.send(attachment.fileData);
   }
 }

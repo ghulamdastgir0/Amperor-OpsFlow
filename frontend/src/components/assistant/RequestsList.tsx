@@ -92,7 +92,7 @@ export function RequestsList() {
                 <li key={request.id}>
                   <Link
                     href={`/requests/${request.id}`}
-                    className="flex items-center gap-4 px-5 py-4 hover:bg-slate-50"
+                    className="flex items-center gap-4 px-5 py-4 hover:bg-slate-50 dark:hover:bg-white/5"
                   >
                     <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-primary">
                       <ChannelIcon className="size-4" aria-hidden />

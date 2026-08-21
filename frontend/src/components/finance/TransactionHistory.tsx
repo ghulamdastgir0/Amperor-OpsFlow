@@ -62,7 +62,7 @@ export function TransactionHistory() {
               {transactions.map((t) => {
                 const status = REQUEST_STATUS_DISPLAY[t.status];
                 return (
-                  <tr key={t.requestId} className="border-b border-border/60 last:border-0 hover:bg-slate-50">
+                  <tr key={t.requestId} className="border-b border-border/60 last:border-0 hover:bg-slate-50 dark:hover:bg-white/5">
                     <td className="py-2.5 pr-4">
                       <Link href={`/requests/${t.requestId}`} className="font-medium text-primary hover:underline">
                         {t.requestId.slice(0, 8)}

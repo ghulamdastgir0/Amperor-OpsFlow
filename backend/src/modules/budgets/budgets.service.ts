@@ -19,6 +19,15 @@ export interface Transaction {
   decidedAt: Date | null;
 }
 
+export interface Reservation {
+  requestId: string;
+  requesterName: string;
+  department: string;
+  intentType: string;
+  amount: number;
+  decidedAt: Date | null;
+}
+
 @Injectable()
 export class BudgetsService {
   constructor(
@@ -58,21 +67,62 @@ export class BudgetsService {
     return budget;
   }
 
+  // Used by RequestsService to block/warn on an approval that would over-commit
+  // a department's budget — see decideFinanceStage/decideEscalatedStage.
+  // Returns null when there's no Budget row for this exact scope at all
+  // (nothing configured to check against, so the caller should skip the
+  // check rather than block on an arbitrary default).
+  async getRemainingForDepartment(
+    tenantId: string,
+    departmentScope: string,
+  ): Promise<number | null> {
+    const budget = await this.prisma.budget.findUnique({
+      where: { tenantId_departmentScope: { tenantId, departmentScope } },
+    });
+    if (!budget) return null;
+
+    const [transactions, reservations] = await Promise.all([
+      this.getTransactions(tenantId, departmentScope),
+      this.getReservations(tenantId, departmentScope),
+    ]);
+    const spent = transactions.reduce((sum, t) => sum + t.amount, 0);
+    const reserved = reservations.reduce((sum, r) => sum + r.amount, 0);
+    return Number(budget.allocatedAmount) - spent - reserved;
+  }
+
+  // Lightweight — just the category names, for the assistant's system prompt
+  // (see AssistantService.buildSystemInstruction). Avoids pulling the full
+  // spend/reservation computation just to list what categories exist.
+  async listDepartmentNames(tenantId: string): Promise<string[]> {
+    const budgets = await this.prisma.budget.findMany({
+      where: { tenantId },
+      select: { departmentScope: true },
+      orderBy: { departmentScope: 'asc' },
+    });
+    return budgets.map((b) => b.departmentScope);
+  }
+
   async findAll(tenantId: string) {
-    const [budgets, transactions] = await Promise.all([
+    const [budgets, transactions, reservations] = await Promise.all([
       this.prisma.budget.findMany({
         where: { tenantId },
         orderBy: { departmentScope: 'asc' },
       }),
       this.getTransactions(tenantId),
+      this.getReservations(tenantId),
     ]);
 
-    return budgets.map((budget) => this.withSpend(budget, transactions));
+    return budgets.map((budget) => this.withSpend(budget, transactions, reservations));
   }
 
-  // "Transactions" = only completed money movements: requests that reached APPROVED or
-  // COMPLETED with a real dollar amount attached, sourced from the same attachment-sum
-  // pattern RequestsService uses for approval routing.
+  // "Transactions" = only completed money movements. Two sources: the
+  // verified/attachment path (a real receipt's OCR total, unchanged), and
+  // the "reserve now, prove later" path (RequestsService.attachProof) —
+  // there, the *reserved* statedAmount is authoritative once any proof
+  // exists, not whatever OCR happens to extract from the proof image (which
+  // may not even be a parseable receipt), so a reservation always converts
+  // to the same dollar figure it reserved rather than silently vanishing if
+  // OCR finds nothing.
   async getTransactions(
     tenantId: string,
     department?: string,
@@ -81,7 +131,10 @@ export class BudgetsService {
       where: {
         tenantId,
         status: { in: TRANSACTION_STATUSES },
-        attachments: { some: { totalAmount: { gt: 0 } } },
+        OR: [
+          { attachments: { some: { totalAmount: { gt: 0 } } } },
+          { statedAmount: { not: null }, attachments: { some: {} } },
+        ],
       },
       include: {
         requester: true,
@@ -94,12 +147,15 @@ export class BudgetsService {
     const transactions = requests.map((request) => ({
       requestId: request.id,
       requesterName: request.requester.name,
-      department: request.requester.department ?? 'ALL',
+      department: request.budgetDepartment ?? request.requester.department ?? 'ALL',
       intentType: request.parsedIntent,
-      amount: request.attachments.reduce(
-        (sum, a) => sum + Number(a.totalAmount ?? 0),
-        0,
-      ),
+      amount:
+        request.statedAmount != null
+          ? Number(request.statedAmount)
+          : request.attachments.reduce(
+              (sum, a) => sum + Number(a.totalAmount ?? 0),
+              0,
+            ),
       status: request.status,
       decidedAt: request.approvals[0]?.decidedAt ?? null,
     }));
@@ -109,13 +165,53 @@ export class BudgetsService {
       : transactions;
   }
 
+  // "Reservations" = money committed but not yet proven: requests APPROVED
+  // via the stated-amount finance path (RequestsService's "reserve now,
+  // prove later" flow) that have no attachment yet. The moment a Finance
+  // Approver/Admin attaches proof (RequestsService.attachProof), the request
+  // gets a real Attachment and moves to COMPLETED — at that point it drops
+  // out of this query and picks up in getTransactions instead, so a given
+  // dollar is only ever counted as reserved OR spent, never both.
+  async getReservations(
+    tenantId: string,
+    department?: string,
+  ): Promise<Reservation[]> {
+    const requests = await this.prisma.request.findMany({
+      where: {
+        tenantId,
+        status: RequestStatus.APPROVED,
+        attachments: { none: {} },
+        statedAmount: { not: null },
+      },
+      include: {
+        requester: true,
+        approvals: { orderBy: { decidedAt: 'desc' }, take: 1 },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const reservations = requests.map((request) => ({
+      requestId: request.id,
+      requesterName: request.requester.name,
+      department: request.budgetDepartment ?? request.requester.department ?? 'ALL',
+      intentType: request.parsedIntent,
+      amount: Number(request.statedAmount ?? 0),
+      decidedAt: request.approvals[0]?.decidedAt ?? null,
+    }));
+
+    return department
+      ? reservations.filter((r) => r.department === department)
+      : reservations;
+  }
+
   async getDashboard(tenantId: string) {
-    const [budgets, transactions, statusCounts] = await Promise.all([
+    const [budgets, transactions, reservations, statusCounts] = await Promise.all([
       this.prisma.budget.findMany({
         where: { tenantId },
         orderBy: { departmentScope: 'asc' },
       }),
       this.getTransactions(tenantId),
+      this.getReservations(tenantId),
       this.prisma.request.groupBy({
         by: ['status'],
         where: { tenantId },
@@ -124,20 +220,22 @@ export class BudgetsService {
     ]);
 
     const budgetsWithSpend = budgets.map((budget) =>
-      this.withSpend(budget, transactions),
+      this.withSpend(budget, transactions, reservations),
     );
     const totalAllocated = budgets.reduce(
       (sum, b) => sum + Number(b.allocatedAmount),
       0,
     );
     const totalSpent = transactions.reduce((sum, t) => sum + t.amount, 0);
+    const totalReserved = reservations.reduce((sum, r) => sum + r.amount, 0);
 
     return {
       budgets: budgetsWithSpend,
       totals: {
         allocated: totalAllocated,
         spent: totalSpent,
-        remaining: totalAllocated - totalSpent,
+        reserved: totalReserved,
+        remaining: totalAllocated - totalSpent - totalReserved,
       },
       spendByDepartment: this.groupSum(transactions),
       statusCounts: statusCounts.map((s) => ({
@@ -145,17 +243,20 @@ export class BudgetsService {
         count: s._count._all,
       })),
       recentTransactions: transactions.slice(0, 10),
+      pendingProof: reservations.slice(0, 10),
     };
   }
 
   private withSpend<
     T extends { allocatedAmount: unknown; departmentScope: string },
-  >(budget: T, transactions: Transaction[]) {
+  >(budget: T, transactions: Transaction[], reservations: Reservation[]) {
     const spent = this.spentFor(transactions, budget.departmentScope);
+    const reserved = this.reservedFor(reservations, budget.departmentScope);
     return {
       ...budget,
       spent,
-      remaining: Number(budget.allocatedAmount) - spent,
+      reserved,
+      remaining: Number(budget.allocatedAmount) - spent - reserved,
     };
   }
 
@@ -168,6 +269,17 @@ export class BudgetsService {
         ? transactions
         : transactions.filter((t) => t.department === departmentScope);
     return relevant.reduce((sum, t) => sum + t.amount, 0);
+  }
+
+  private reservedFor(
+    reservations: Reservation[],
+    departmentScope: string,
+  ): number {
+    const relevant =
+      departmentScope === 'ALL'
+        ? reservations
+        : reservations.filter((r) => r.department === departmentScope);
+    return relevant.reduce((sum, r) => sum + r.amount, 0);
   }
 
   private groupSum(transactions: Transaction[]) {

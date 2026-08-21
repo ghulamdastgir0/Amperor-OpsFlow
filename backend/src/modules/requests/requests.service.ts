@@ -1,11 +1,17 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
 import {
   ApprovalDecision,
+  AttachmentSource,
   ExecutionStepStatus,
   Prisma,
   Role,
@@ -15,11 +21,43 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PoliciesService, RESTRICTED_DOC_VISIBLE_ROLES } from '../policies/policies.service';
 import { FinanceDelegationsService } from '../finance-delegations/finance-delegations.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { OcrService } from '../slack/ocr.service';
+import { BudgetsService } from '../budgets/budgets.service';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { CreateRequestDto } from './dto/create-request.dto';
 
+// Finance/Admin may decide a request whose amount is *stated* (chat text,
+// unverified) without any FinanceDelegation matching it — delegation
+// matching stays required only for a *verified* (attachment-derived)
+// amount. See decideFinanceStage.
+const FINANCE_DECIDE_ROLES = new Set<Role>([
+  Role.FINANCE_APPROVER,
+  Role.SYSTEM_ADMIN,
+]);
+
+// fileData is deliberately excluded here — it's the raw proof-image bytes,
+// fetched separately via getAttachmentFile so normal request-detail reads
+// don't ship large binaries (and Buffers) through the JSON envelope.
 const DETAIL_INCLUDE = {
-  attachments: true,
+  attachments: {
+    select: {
+      id: true,
+      requestId: true,
+      source: true,
+      slackFileId: true,
+      urlPrivateDownload: true,
+      fileName: true,
+      mimeType: true,
+      merchantName: true,
+      totalAmount: true,
+      currency: true,
+      lineItems: true,
+      taxId: true,
+      documentDate: true,
+      ocrRawText: true,
+      createdAt: true,
+    },
+  },
   executionSteps: { orderBy: { sequenceOrder: 'asc' as const } },
   policyCitations: { include: { policyDocument: true } },
   approvals: true,
@@ -44,11 +82,17 @@ type FinalDecision =
 
 @Injectable()
 export class RequestsService {
+  private readonly logger = new Logger(RequestsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly policies: PoliciesService,
     private readonly financeDelegations: FinanceDelegationsService,
     private readonly auditLogs: AuditLogsService,
+    private readonly config: ConfigService,
+    private readonly httpService: HttpService,
+    private readonly ocr: OcrService,
+    private readonly budgets: BudgetsService,
   ) {}
 
   async create(tenantId: string, requesterId: string, dto: CreateRequestDto) {
@@ -60,6 +104,8 @@ export class RequestsService {
         rawPrompt: dto.rawPrompt,
         parsedIntent: dto.parsedIntent ?? 'UNCLASSIFIED',
         status: RequestStatus.PENDING_POLICY_CHECK,
+        statedAmount: dto.statedAmount,
+        budgetDepartment: dto.budgetDepartment,
       },
     });
 
@@ -169,21 +215,31 @@ export class RequestsService {
 
     const totalAmount = this.sumAttachments(request.attachments);
 
-    if (totalAmount <= 0) {
-      await this.addStep(
-        requestId,
-        'Routing for Approval',
-        ExecutionStepStatus.COMPLETED,
-      );
-      await this.addStep(requestId, 'Completed', ExecutionStepStatus.COMPLETED);
-      return this.setStatus(requestId, RequestStatus.COMPLETED);
-    }
-
     await this.addStep(
       requestId,
       'Routing for Approval',
       ExecutionStepStatus.COMPLETED,
     );
+
+    if (totalAmount <= 0) {
+      const stated = Number(request.statedAmount ?? 0);
+      if (stated > 0) {
+        // No verified receipt, but a dollar figure was stated in chat —
+        // route straight to Finance/Admin (skip the manager stage; this
+        // tenant only actually uses Employee/Finance Approver/System Admin)
+        // to reserve the amount pending proof, instead of silently
+        // auto-completing with no decision at all.
+        await this.addStep(
+          requestId,
+          'Awaiting Finance Approval',
+          ExecutionStepStatus.IN_PROGRESS,
+        );
+        return this.setStatus(requestId, RequestStatus.PENDING_FINANCE_APPROVAL);
+      }
+      await this.addStep(requestId, 'Completed', ExecutionStepStatus.COMPLETED);
+      return this.setStatus(requestId, RequestStatus.COMPLETED);
+    }
+
     await this.addStep(
       requestId,
       'Awaiting Manager Approval',
@@ -208,41 +264,65 @@ export class RequestsService {
     if (!request) throw new NotFoundException('Request not found');
 
     const totalAmount = this.sumAttachments(request.attachments);
+    // Verified (attachment/OCR) amount takes priority; otherwise fall back
+    // to the unverified stated amount so delegation-matching and the
+    // recorded Approval.spendingAmount still reflect the real figure being
+    // decided on, even before a receipt exists.
+    const effectiveAmount = totalAmount > 0 ? totalAmount : Number(request.statedAmount ?? 0);
+    const hasVerifiedAttachment = request.attachments.length > 0;
     const department = request.requester.department ?? 'ALL';
+    // Which Budget row this approval would actually draw down — the expense
+    // category if the assistant classified one, not the requester's own
+    // department (that's a separate concept, used only for delegation
+    // matching above). See decideFinanceStage/decideEscalatedStage.
+    const budgetScope = request.budgetDepartment ?? request.requester.department ?? 'ALL';
 
+    let result;
     switch (request.status) {
       case RequestStatus.PENDING_MANAGER_APPROVAL:
-        return this.decideManagerStage(
+        result = await this.decideManagerStage(
           tenantId,
           actingUser,
           request.id,
           department,
-          totalAmount,
+          effectiveAmount,
           decision,
           reason,
         );
+        break;
       case RequestStatus.PENDING_FINANCE_APPROVAL:
-        return this.decideFinanceStage(
+        result = await this.decideFinanceStage(
           tenantId,
           actingUser,
           request.id,
           department,
-          totalAmount,
+          budgetScope,
+          effectiveAmount,
+          hasVerifiedAttachment,
           decision,
           reason,
         );
+        break;
       case RequestStatus.ESCALATED:
-        return this.decideEscalatedStage(
+        result = await this.decideEscalatedStage(
           tenantId,
           actingUser,
           request.id,
-          totalAmount,
+          budgetScope,
+          effectiveAmount,
           decision,
           reason,
         );
+        break;
       default:
         throw new ConflictException('Request is not awaiting approval');
     }
+
+    // Best-effort — never lets a notification failure fail the decision itself.
+    if (result.status === RequestStatus.APPROVED || result.status === RequestStatus.REJECTED) {
+      await this.notifyRequesterOfDecision(tenantId, request.requester, result.status, request.rawPrompt);
+    }
+    return result;
   }
 
   private async decideManagerStage(
@@ -320,7 +400,9 @@ export class RequestsService {
     actingUser: AuthenticatedUser,
     requestId: string,
     department: string,
+    budgetScope: string,
     totalAmount: number,
+    hasVerifiedAttachment: boolean,
     decision: FinalDecision,
     reason: string | undefined,
   ) {
@@ -333,11 +415,34 @@ export class RequestsService {
       (d) => d.delegateManagerId === actingUser.userId,
     );
 
-    if (!matched && actingUser.role !== Role.SYSTEM_ADMIN) {
+    // A verified (receipt-backed) amount still requires an actual matching
+    // FinanceDelegation, or SYSTEM_ADMIN — unchanged, existing behavior. An
+    // unverified/stated amount (no receipt yet — the "reserve now, prove
+    // later" path) only requires holding FINANCE_APPROVER or SYSTEM_ADMIN;
+    // requiring a pre-configured delegation for a not-yet-real number would
+    // make the fallback ("if no finance manager exists, admin handles it")
+    // impossible to satisfy in the common case of no delegations configured.
+    const authorized = hasVerifiedAttachment
+      ? !!matched || actingUser.role === Role.SYSTEM_ADMIN
+      : FINANCE_DECIDE_ROLES.has(actingUser.role);
+
+    if (!authorized) {
       throw new ForbiddenException(
-        'No active finance delegation covers this amount for your account',
+        hasVerifiedAttachment
+          ? 'No active finance delegation covers this amount for your account'
+          : 'Only a Finance Approver or System Admin can act on this request',
       );
     }
+
+    // Blocks (throws) if this would overdraw the department's remaining
+    // budget; returns a warning string if it would use exactly what's left.
+    // Applies to every approver equally, including System Admin — this is a
+    // budget-integrity guard, not an authority check, so it isn't something
+    // a higher role should be able to route around.
+    const budgetWarning =
+      decision === ApprovalDecision.APPROVED
+        ? await this.checkBudgetHeadroom(tenantId, budgetScope, totalAmount)
+        : undefined;
 
     await this.recordApproval(
       requestId,
@@ -360,18 +465,20 @@ export class RequestsService {
       },
     );
 
-    return this.setStatus(
+    const updated = await this.setStatus(
       requestId,
       decision === ApprovalDecision.APPROVED
         ? RequestStatus.APPROVED
         : RequestStatus.REJECTED,
     );
+    return budgetWarning ? { ...updated, budgetWarning } : updated;
   }
 
   private async decideEscalatedStage(
     tenantId: string,
     actingUser: AuthenticatedUser,
     requestId: string,
+    budgetScope: string,
     totalAmount: number,
     decision: FinalDecision,
     reason: string | undefined,
@@ -381,6 +488,11 @@ export class RequestsService {
         'Only a system admin can resolve an escalated request',
       );
     }
+
+    const budgetWarning =
+      decision === ApprovalDecision.APPROVED
+        ? await this.checkBudgetHeadroom(tenantId, budgetScope, totalAmount)
+        : undefined;
 
     await this.recordApproval(
       requestId,
@@ -404,12 +516,152 @@ export class RequestsService {
       },
     );
 
-    return this.setStatus(
+    const updated = await this.setStatus(
       requestId,
       decision === ApprovalDecision.APPROVED
         ? RequestStatus.APPROVED
         : RequestStatus.REJECTED,
     );
+    return budgetWarning ? { ...updated, budgetWarning } : updated;
+  }
+
+  // Finance/Admin closes out an APPROVED-but-unverified request (the
+  // "reserve now, prove later" path — see runPipeline) by attaching the
+  // actual receipt/invoice. This becomes a real Attachment row via the same
+  // OCR pipeline Slack file ingestion uses, and moving the request to
+  // COMPLETED is what makes BudgetsService count it as spent (its
+  // "transaction" query already looks for status in [APPROVED, COMPLETED]
+  // with an attachment carrying a real amount) — no separate budget-side
+  // bookkeeping needed, it just falls out of the existing query once a real
+  // attachment exists.
+  async attachProof(
+    tenantId: string,
+    actingUser: AuthenticatedUser,
+    requestId: string,
+    files: Array<{ buffer: Buffer; mimetype: string; originalname: string }>,
+  ) {
+    if (!FINANCE_DECIDE_ROLES.has(actingUser.role)) {
+      throw new ForbiddenException(
+        'Only a Finance Approver or System Admin can attach proof',
+      );
+    }
+    const request = await this.prisma.request.findFirst({
+      where: { id: requestId, tenantId },
+      include: { attachments: true },
+    });
+    if (!request) throw new NotFoundException('Request not found');
+    if (request.status !== RequestStatus.APPROVED) {
+      throw new BadRequestException(
+        'Proof can only be attached to an approved request',
+      );
+    }
+    if (request.attachments.length > 0) {
+      throw new BadRequestException('This request already has proof attached');
+    }
+
+    const attachmentIds: string[] = [];
+    for (const file of files) {
+      const parsed = await this.ocr.extractFields(file.buffer, file.mimetype);
+      const attachment = await this.prisma.attachment.create({
+        data: {
+          requestId,
+          source: AttachmentSource.assistant_ui,
+          fileName: file.originalname,
+          mimeType: file.mimetype,
+          fileData: Uint8Array.from(file.buffer),
+          merchantName: parsed.merchantName,
+          // Deliberately NOT forced to request.statedAmount — this is a raw
+          // record of what OCR found on this specific receipt (may be null,
+          // e.g. a non-receipt image). BudgetsService treats the originally
+          // reserved statedAmount as the authoritative spent figure once any
+          // proof exists, rather than trusting per-file OCR totals, so the
+          // reserved dollar amount always converts to spent regardless of
+          // what OCR extracts here.
+          totalAmount: parsed.totalAmount,
+          currency: parsed.currency,
+          lineItems: parsed.lineItems,
+          taxId: parsed.taxId,
+          documentDate: parsed.documentDate ? new Date(parsed.documentDate) : undefined,
+          ocrRawText: parsed.rawText,
+        },
+      });
+      attachmentIds.push(attachment.id);
+    }
+
+    await this.addStep(requestId, 'Proof Attached — Reserved Funds Spent', ExecutionStepStatus.COMPLETED);
+    await this.audit(tenantId, actingUser.userId, requestId, 'REQUEST_PROOF_ATTACHED', {
+      attachmentIds,
+      statedAmount: request.statedAmount ?? null,
+    });
+
+    await this.setStatus(requestId, RequestStatus.COMPLETED);
+    return this.findOne(tenantId, requestId, {
+      userId: actingUser.userId,
+      role: actingUser.role,
+    });
+  }
+
+  // Streams a proof file's raw bytes back out — same visibility rule as
+  // findOne (own request, or a BROAD_VISIBILITY_ROLES holder).
+  async getAttachmentFile(
+    tenantId: string,
+    actingUser: { userId: string; role: Role },
+    requestId: string,
+    attachmentId: string,
+  ) {
+    const request = await this.prisma.request.findFirst({
+      where: { id: requestId, tenantId },
+      select: { id: true, requesterId: true },
+    });
+    if (!request) throw new NotFoundException('Request not found');
+    if (
+      request.requesterId !== actingUser.userId &&
+      !BROAD_VISIBILITY_ROLES.has(actingUser.role)
+    ) {
+      throw new ForbiddenException("You don't have access to this request");
+    }
+    const attachment = await this.prisma.attachment.findFirst({
+      where: { id: attachmentId, requestId },
+      select: { fileData: true, mimeType: true, fileName: true },
+    });
+    if (!attachment?.fileData) {
+      throw new NotFoundException('File not found');
+    }
+    return attachment;
+  }
+
+  // Best-effort, never throws — a Slack DM failure must not fail the
+  // decision itself. Only fires on a terminal outcome (APPROVED/REJECTED).
+  private async notifyRequesterOfDecision(
+    tenantId: string,
+    requester: { id: string; name: string; slackUserId: string | null },
+    status: typeof RequestStatus.APPROVED | typeof RequestStatus.REJECTED,
+    rawPrompt: string,
+  ) {
+    try {
+      if (!requester.slackUserId) return;
+      const botToken = await this.resolveBotToken(tenantId);
+      if (!botToken) return;
+
+      const verb = status === RequestStatus.APPROVED ? 'approved' : 'rejected';
+      const text = `Your request "${rawPrompt}" was ${verb}.`;
+      await firstValueFrom(
+        this.httpService.post(
+          'https://slack.com/api/chat.postMessage',
+          { channel: requester.slackUserId, text },
+          { headers: { Authorization: `Bearer ${botToken}` } },
+        ),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Failed to notify requester of decision: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  private async resolveBotToken(tenantId: string): Promise<string | undefined> {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    return tenant?.slackBotToken ?? this.config.get<string>('slack.botToken');
   }
 
   private async coveringDelegations(
@@ -422,6 +674,35 @@ export class RequestsService {
       department,
     );
     return delegations.filter((d) => Number(d.maxApprovalLimit) >= totalAmount);
+  }
+
+  // Blocks an approval that would overdraw the department's remaining
+  // budget (throws), or returns a warning string when it would use exactly
+  // what's left. No-op (returns undefined, no error) when nothing is
+  // configured for this scope — there's nothing to check against.
+  private async checkBudgetHeadroom(
+    tenantId: string,
+    budgetScope: string,
+    amount: number,
+  ): Promise<string | undefined> {
+    if (amount <= 0) return undefined;
+    const remaining = await this.budgets.getRemainingForDepartment(
+      tenantId,
+      budgetScope,
+    );
+    if (remaining === null) return undefined;
+
+    const EPSILON = 0.005; // guards against float rounding on Decimal->Number
+    if (amount > remaining + EPSILON) {
+      throw new BadRequestException(
+        `This request ($${amount.toFixed(2)}) exceeds the remaining ${budgetScope} budget ` +
+          `($${remaining.toFixed(2)}). It cannot be approved as-is.`,
+      );
+    }
+    if (Math.abs(amount - remaining) <= EPSILON) {
+      return `This approval uses the entire remaining ${budgetScope} budget ($${remaining.toFixed(2)}) — nothing will be left.`;
+    }
+    return undefined;
   }
 
   private sumAttachments(attachments: Array<{ totalAmount: unknown }>): number {

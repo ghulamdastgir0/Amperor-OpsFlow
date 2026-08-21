@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { AlertCircle, ArrowLeft, Check, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, Check, Paperclip, X } from "lucide-react";
 import { requestsApi } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/components/ui/Toast";
@@ -25,6 +25,8 @@ const ELIGIBLE_ROLES: Partial<Record<OpsRequest["status"], Role[]>> = {
   ESCALATED: ["SYSTEM_ADMIN"],
 };
 
+const FINANCE_DECIDE_ROLES: Role[] = ["FINANCE_APPROVER", "SYSTEM_ADMIN"];
+
 export function RequestDetail({ requestId }: { requestId: string }) {
   const { user } = useAuth();
   const toast = useToast();
@@ -33,6 +35,8 @@ export function RequestDetail({ requestId }: { requestId: string }) {
   const [reason, setReason] = useState("");
   const [showReasonFor, setShowReasonFor] = useState<"REJECTED" | null>(null);
   const [decidingAs, setDecidingAs] = useState<"APPROVED" | "REJECTED" | null>(null);
+  const [isUploadingProof, setIsUploadingProof] = useState(false);
+  const proofInputRef = useRef<HTMLInputElement>(null);
 
   function load() {
     requestsApi
@@ -55,15 +59,43 @@ export function RequestDetail({ requestId }: { requestId: string }) {
       setReason("");
       setShowReasonFor(null);
       toast.success(decision === "APPROVED" ? "Request approved." : "Request rejected.");
+      if (updated.budgetWarning) toast.info(updated.budgetWarning);
     } catch (err) {
-      const status = (err as { response?: { status?: number } }).response?.status;
-      const messages: Record<number, string> = {
+      const response = (err as { response?: { status?: number; data?: { message?: string | string[] } } })
+        .response;
+      const serverMessage = response?.data?.message;
+      const detail = Array.isArray(serverMessage) ? serverMessage.join(" ") : serverMessage;
+      const fallbacks: Record<number, string> = {
         403: "You're not eligible to act on this request.",
         409: "This request is no longer awaiting approval.",
       };
-      toast.error((status && messages[status]) || "Could not record your decision.");
+      toast.error(detail || (response?.status && fallbacks[response.status]) || "Could not record your decision.");
     } finally {
       setDecidingAs(null);
+    }
+  }
+
+  async function handleAttachProof(files: File[]) {
+    setIsUploadingProof(true);
+    try {
+      const updated = await requestsApi.attachProof(requestId, files);
+      setRequest(updated);
+      toast.success("Proof attached — moved from reserved to spent.");
+    } catch (err) {
+      const status = (err as { response?: { status?: number } }).response?.status;
+      toast.error(status === 403 ? "Only a Finance Approver or System Admin can attach proof." : "Could not attach this proof.");
+    } finally {
+      setIsUploadingProof(false);
+      if (proofInputRef.current) proofInputRef.current.value = "";
+    }
+  }
+
+  async function handleViewAttachment(attachmentId: string) {
+    try {
+      const url = await requestsApi.getAttachmentFileUrl(requestId, attachmentId);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch {
+      toast.error("Could not open this file.");
     }
   }
 
@@ -89,7 +121,24 @@ export function RequestDetail({ requestId }: { requestId: string }) {
   }
 
   const status = REQUEST_STATUS_DISPLAY[request.status];
-  const canDecide = user && (ELIGIBLE_ROLES[request.status] ?? []).includes(user.role);
+  const hasVerifiedAttachment = (request.attachments?.length ?? 0) > 0;
+  // A finance-stage request with no attachment is the "reserve now, prove
+  // later" path — only Finance Approver/Admin can decide it (no delegation
+  // to match against yet). With an attachment it's the verified path, where
+  // the broader role list is just a UX heuristic (real check is the
+  // delegation match, done server-side).
+  const financeEligibleRoles =
+    request.status === "PENDING_FINANCE_APPROVAL" && !hasVerifiedAttachment
+      ? FINANCE_DECIDE_ROLES
+      : ELIGIBLE_ROLES.PENDING_FINANCE_APPROVAL ?? [];
+  const eligibleRoles =
+    request.status === "PENDING_FINANCE_APPROVAL" ? financeEligibleRoles : ELIGIBLE_ROLES[request.status] ?? [];
+  const canDecide = user && eligibleRoles.includes(user.role);
+  const canAttachProof =
+    user &&
+    request.status === "APPROVED" &&
+    !hasVerifiedAttachment &&
+    FINANCE_DECIDE_ROLES.includes(user.role);
 
   return (
     <div>
@@ -120,14 +169,20 @@ export function RequestDetail({ requestId }: { requestId: string }) {
               <h2 className="font-heading mb-3 text-sm font-semibold text-foreground">Attachments</h2>
               <ul className="flex flex-col gap-2">
                 {request.attachments.map((a) => (
-                  <li key={a.id} className="flex items-center justify-between rounded-lg border border-border bg-slate-50 px-3.5 py-2.5 text-sm">
-                    <span className="truncate text-foreground">{a.fileName ?? a.merchantName ?? "Attachment"}</span>
-                    {a.totalAmount && (
-                      <span className="shrink-0 font-medium text-foreground">
-                        {a.currency ?? "$"}
-                        {a.totalAmount}
-                      </span>
-                    )}
+                  <li key={a.id}>
+                    <button
+                      type="button"
+                      onClick={() => handleViewAttachment(a.id)}
+                      className="flex w-full items-center justify-between rounded-lg border border-border bg-slate-50 px-3.5 py-2.5 text-left text-sm transition-colors hover:bg-slate-100 dark:bg-white/5 dark:hover:bg-white/10"
+                    >
+                      <span className="truncate text-foreground">{a.fileName ?? a.merchantName ?? "Attachment"}</span>
+                      {a.totalAmount && (
+                        <span className="ml-3 shrink-0 font-medium text-foreground">
+                          {a.currency ?? "$"}
+                          {a.totalAmount}
+                        </span>
+                      )}
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -141,6 +196,37 @@ export function RequestDetail({ requestId }: { requestId: string }) {
         </div>
 
         <div className="flex flex-col gap-4">
+          {canAttachProof && (
+            <Card>
+              <h2 className="font-heading mb-1 text-sm font-semibold text-foreground">Attach Proof</h2>
+              <p className="mb-3 text-xs text-muted">
+                Approved on a stated, unverified amount — upload the receipt/invoice (one or more
+                files) to close this out and move the reserved funds to spent.
+              </p>
+              <input
+                ref={proofInputRef}
+                type="file"
+                multiple
+                accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  if (files.length > 0) handleAttachProof(files);
+                }}
+              />
+              <Button
+                variant="outline"
+                className="w-full"
+                isLoading={isUploadingProof}
+                disabled={isUploadingProof}
+                onClick={() => proofInputRef.current?.click()}
+              >
+                {!isUploadingProof && <Paperclip className="size-4" aria-hidden />}
+                Upload receipt/invoice
+              </Button>
+            </Card>
+          )}
+
           {canDecide && (
             <Card>
               <h2 className="font-heading mb-3 text-sm font-semibold text-foreground">Your decision</h2>

@@ -33,3 +33,28 @@ export async function decideRequest(
   });
   return data.data;
 }
+
+export async function attachProof(id: string, files: File[]) {
+  const formData = new FormData();
+  for (const file of files) {
+    formData.append('files', file);
+  }
+  const { data } = await apiClient.post<ApiEnvelope<OpsRequest>>(`/requests/${id}/proof`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data.data;
+}
+
+// Attachments are served as raw bytes (not JSON), and the endpoint requires
+// the Bearer token — so a plain <a href> can't be used to view them; fetch
+// as a blob (auth header attached by the apiClient interceptor) and hand the
+// caller an object URL to open/download instead.
+export async function getAttachmentFileUrl(requestId: string, attachmentId: string) {
+  const { data, headers } = await apiClient.get<Blob>(
+    `/requests/${requestId}/attachments/${attachmentId}/file`,
+    { responseType: 'blob' },
+  );
+  const contentType = headers['content-type'];
+  const blob = typeof contentType === 'string' ? new Blob([data], { type: contentType }) : data;
+  return URL.createObjectURL(blob);
+}
