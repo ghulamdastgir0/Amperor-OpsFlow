@@ -1,0 +1,14 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e30]:
+    - button "Sign out" [ref=e31]
+    - generic [ref=e35]:
+      - heading "Connect your Slack workspace" [level=1] [ref=e39]
+      - paragraph [ref=e40]: OpsFlow runs through Slack — requests, approvals, and receipts all flow through it. Connect your workspace before using the rest of the admin panel.
+      - generic [ref=e41]:
+        - generic [ref=e42]:
+          - generic [ref=e43]: Slack team ID *
+          - textbox "Slack team ID * Find this under your Slack workspace's settings — it looks like T01ABCDE2F" [ref=e44]:
+            - /placeholder: T01ABCDE2F
+          - generic [ref=e45]: Find this under your Slack workspace's settings — it looks like T01ABCDE2F
+        - button "Save and continue" [ref=e46]
+  - alert [ref=e29]

@@ -9,6 +9,7 @@ interface Authenticatable {
   id: string;
   tenantId: string;
   email: string;
+  name: string;
   role: Role;
 }
 
@@ -39,6 +40,7 @@ export class AuthService {
       userId: user.id,
       tenantId: user.tenantId,
       email: user.email,
+      name: user.name,
       role: user.role,
     };
     return { accessToken: this.jwtService.sign(payload), user: payload };

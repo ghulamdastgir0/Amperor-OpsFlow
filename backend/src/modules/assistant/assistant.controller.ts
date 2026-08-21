@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { RequestChannel } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { AssistantService } from './assistant.service';
@@ -16,12 +17,12 @@ export class AssistantController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: SendMessageDto,
   ) {
-    return this.assistantService.sendMessage(user.tenantId, user.userId, dto);
+    return this.assistantService.sendMessage(user.tenantId, user.userId, dto, RequestChannel.assistant_ui);
   }
 
   @Get('conversations')
   listConversations(@CurrentUser() user: AuthenticatedUser) {
-    return this.assistantService.listConversations(user.tenantId, user.userId);
+    return this.assistantService.listConversations(user.tenantId, user.userId, RequestChannel.assistant_ui);
   }
 
   @Get('conversations/:id/messages')

@@ -420,18 +420,24 @@ model Approval {
 // ─────────────────────────────────────────────
 
 model Conversation {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId  String   @map("tenant_id") @db.Uuid
-  userId    String   @map("user_id") @db.Uuid
+  id        String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String          @map("tenant_id") @db.Uuid
+  userId    String          @map("user_id") @db.Uuid
   title     String?
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  // Which surface this thread belongs to — Slack and the web Assistant UI
+  // are separate conversations for the same person, never merged. Without
+  // this, "resume the most recent conversation" (used on web load) could
+  // resume a conversation that was actually a Slack DM, which reads as a
+  // stray/duplicated message the user never typed in the browser.
+  channel   RequestChannel  @default(assistant_ui) @map("channel")
+  createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime        @updatedAt @map("updated_at") @db.Timestamptz
 
   tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages Message[]
 
-  @@index([tenantId, userId])
+  @@index([tenantId, userId, channel])
   @@map("conversations")
 }
 

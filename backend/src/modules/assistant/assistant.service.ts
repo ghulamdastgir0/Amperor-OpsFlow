@@ -1,6 +1,6 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { MessageRole, Role } from '@prisma/client';
+import { MessageRole, RequestChannel, Role } from '@prisma/client';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import {
   AIMessage,
@@ -175,8 +175,15 @@ export class AssistantService {
     this.graph = buildAssistantGraph(model, tools);
   }
 
-  // Conversational Command Canvas: multi-turn dialogue with state tracking (FR-UI-001)
-  async sendMessage(tenantId: string, userId: string, dto: SendMessageDto) {
+  // Conversational Command Canvas: multi-turn dialogue with state tracking (FR-UI-001).
+  // `channel` is caller-supplied (never client input) — Slack and the web
+  // Assistant UI are kept as separate threads per user, see Conversation.channel.
+  async sendMessage(
+    tenantId: string,
+    userId: string,
+    dto: SendMessageDto,
+    channel: RequestChannel = RequestChannel.assistant_ui,
+  ) {
     const actingUser = await this.prisma.user.findFirst({
       where: { id: userId, tenantId },
       select: { role: true },
@@ -185,7 +192,7 @@ export class AssistantService {
 
     const conversation = dto.conversationId
       ? await this.getConversation(tenantId, dto.conversationId)
-      : await this.prisma.conversation.create({ data: { tenantId, userId } });
+      : await this.findOrCreateConversation(tenantId, userId, channel);
 
     const userMessage = await this.prisma.message.create({
       data: {
@@ -213,7 +220,32 @@ export class AssistantService {
       },
     });
 
-    return { conversation, messages: [userMessage, assistantMessage] };
+    // Message.create doesn't touch its parent Conversation row, so without
+    // this, "most recent conversation" (listConversations, used to resume on
+    // load) would really mean "most recently created" — a conversation
+    // resumed via an explicit conversationId and given new messages would
+    // never resurface as the most recent one.
+    const updatedConversation = await this.prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { updatedAt: new Date() },
+    });
+
+    return { conversation: updatedConversation, messages: [userMessage, assistantMessage] };
+  }
+
+  // Continues this user's most recent thread on the given channel, or
+  // starts a new one — never crosses channels (see Conversation.channel).
+  private async findOrCreateConversation(
+    tenantId: string,
+    userId: string,
+    channel: RequestChannel,
+  ) {
+    const existing = await this.prisma.conversation.findFirst({
+      where: { tenantId, userId, channel },
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (existing) return existing;
+    return this.prisma.conversation.create({ data: { tenantId, userId, channel } });
   }
 
   private async orchestrate(
@@ -346,9 +378,16 @@ ${categoryList}`;
       );
   }
 
-  async listConversations(tenantId: string, userId: string) {
+  // Only ever the caller's own channel — the web UI resuming "the most
+  // recent conversation" must never land on a Slack thread (see
+  // Conversation.channel).
+  async listConversations(
+    tenantId: string,
+    userId: string,
+    channel: RequestChannel = RequestChannel.assistant_ui,
+  ) {
     return this.prisma.conversation.findMany({
-      where: { tenantId, userId },
+      where: { tenantId, userId, channel },
       orderBy: { updatedAt: 'desc' },
     });
   }

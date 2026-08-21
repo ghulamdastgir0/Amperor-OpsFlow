@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { AlertCircle, Megaphone, Plus, Tag, UserPlus, Wand2, X } from "lucide-react";
 import { employeeRolesApi, usersApi } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 import type { EmployeeRole, Role, RoleBroadcast, User } from "@/lib/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
@@ -324,17 +325,26 @@ function EmployeeAssignments({
   onUserCreated,
   onUserRolesUpdated,
   onUserRoleChanged,
+  onUserBlockChanged,
+  onUserRemoved,
 }: {
   users: User[];
   roles: EmployeeRole[];
   onUserCreated: (user: User) => void;
   onUserRolesUpdated: (userId: string, roles: EmployeeRole[]) => void;
   onUserRoleChanged: (userId: string, role: Role) => void;
+  onUserBlockChanged: (user: User) => void;
+  onUserRemoved: (userId: string) => void;
 }) {
   const toast = useToast();
+  const { user: currentUser } = useAuth();
   const [pendingRoleChange, setPendingRoleChange] = useState<{ user: User; role: Role } | null>(null);
   const [isChangingRole, setIsChangingRole] = useState(false);
   const [pendingTagChangeUserId, setPendingTagChangeUserId] = useState<string | null>(null);
+  const [pendingBlockToggle, setPendingBlockToggle] = useState<User | null>(null);
+  const [isTogglingBlock, setIsTogglingBlock] = useState(false);
+  const [pendingRemove, setPendingRemove] = useState<User | null>(null);
+  const [isRemoving, setIsRemoving] = useState(false);
 
   async function applyRoleChange(user: User, role: Role) {
     setIsChangingRole(true);
@@ -380,6 +390,38 @@ function EmployeeAssignments({
   function removeTag(user: User, roleId: string) {
     const current = (user.employeeRoles ?? []).map((r) => r.id);
     changeTags(user, current.filter((id) => id !== roleId));
+  }
+
+  async function confirmBlockToggle() {
+    if (!pendingBlockToggle) return;
+    setIsTogglingBlock(true);
+    try {
+      const updated = pendingBlockToggle.isActive
+        ? await usersApi.blockUser(pendingBlockToggle.id)
+        : await usersApi.unblockUser(pendingBlockToggle.id);
+      onUserBlockChanged(updated);
+      toast.success(updated.isActive ? `${pendingBlockToggle.name} unblocked.` : `${pendingBlockToggle.name} blocked.`);
+      setPendingBlockToggle(null);
+    } catch {
+      toast.error("Could not update this employee's access.");
+    } finally {
+      setIsTogglingBlock(false);
+    }
+  }
+
+  async function confirmRemove() {
+    if (!pendingRemove) return;
+    setIsRemoving(true);
+    try {
+      await usersApi.deleteUser(pendingRemove.id);
+      onUserRemoved(pendingRemove.id);
+      toast.success(`${pendingRemove.name} removed.`);
+      setPendingRemove(null);
+    } catch (err) {
+      toast.error(extractErrorMessage(err) ?? "Could not remove this employee.");
+    } finally {
+      setIsRemoving(false);
+    }
   }
 
   return (
@@ -437,6 +479,26 @@ function EmployeeAssignments({
 
                 <AddRoleTag user={u} roles={roles} onAdd={(roleId) => addTag(u, roleId)} />
               </div>
+
+              {u.id !== currentUser?.userId && (
+                <div className="flex shrink-0 items-center gap-3 sm:ml-auto">
+                  <Badge tone={u.isActive ? "green" : "slate"}>{u.isActive ? "Active" : "Inactive"}</Badge>
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-muted hover:text-foreground"
+                    onClick={() => setPendingBlockToggle(u)}
+                  >
+                    {u.isActive ? "Block" : "Unblock"}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-red-500 hover:text-red-400"
+                    onClick={() => setPendingRemove(u)}
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -451,6 +513,32 @@ function EmployeeAssignments({
         isLoading={isChangingRole}
         onConfirm={() => pendingRoleChange && applyRoleChange(pendingRoleChange.user, pendingRoleChange.role)}
         onCancel={() => setPendingRoleChange(null)}
+      />
+
+      <ConfirmDialog
+        open={pendingBlockToggle !== null}
+        title={pendingBlockToggle?.isActive ? `Block ${pendingBlockToggle?.name}?` : `Unblock ${pendingBlockToggle?.name}?`}
+        description={
+          pendingBlockToggle?.isActive
+            ? `"${pendingBlockToggle?.name}" will immediately lose access — their session is cut off on their next request, and they won't be able to sign back in until you unblock them.`
+            : `"${pendingBlockToggle?.name}" will be able to sign back in immediately.`
+        }
+        confirmLabel={pendingBlockToggle?.isActive ? "Block employee" : "Unblock employee"}
+        danger={pendingBlockToggle?.isActive}
+        isLoading={isTogglingBlock}
+        onConfirm={confirmBlockToggle}
+        onCancel={() => setPendingBlockToggle(null)}
+      />
+
+      <ConfirmDialog
+        open={pendingRemove !== null}
+        title="Remove this employee?"
+        description={`"${pendingRemove?.name}" will be permanently deleted. This only works if they have no request or approval history — otherwise, block them instead to preserve the audit trail.`}
+        confirmLabel="Remove employee"
+        danger
+        isLoading={isRemoving}
+        onConfirm={confirmRemove}
+        onCancel={() => setPendingRemove(null)}
       />
     </Card>
   );
@@ -687,6 +775,10 @@ export default function EmployeeRolesPage() {
           onUserCreated={handleUserCreated}
           onUserRolesUpdated={handleUserRolesUpdated}
           onUserRoleChanged={handleUserRoleChanged}
+          onUserBlockChanged={(updated) =>
+            setUsers((prev) => prev?.map((u) => (u.id === updated.id ? { ...u, isActive: updated.isActive } : u)) ?? null)
+          }
+          onUserRemoved={(userId) => setUsers((prev) => prev?.filter((u) => u.id !== userId) ?? null)}
         />
 
         <BroadcastComposer

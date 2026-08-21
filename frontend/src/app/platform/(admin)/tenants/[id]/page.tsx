@@ -38,6 +38,9 @@ export default function PlatformTenantDetailPage({ params }: PageProps<"/platfor
   const [pendingRemoveAdmin, setPendingRemoveAdmin] = useState<User | null>(null);
   const [isRemovingAdmin, setIsRemovingAdmin] = useState(false);
 
+  const [pendingBlockToggle, setPendingBlockToggle] = useState<User | null>(null);
+  const [isTogglingBlock, setIsTogglingBlock] = useState(false);
+
   useEffect(() => {
     Promise.all([
       platformApi.getTenant(tenantId),
@@ -101,6 +104,23 @@ export default function PlatformTenantDetailPage({ params }: PageProps<"/platfor
       toast.error("Could not remove this admin.");
     } finally {
       setIsRemovingAdmin(false);
+    }
+  }
+
+  async function confirmBlockToggle() {
+    if (!pendingBlockToggle) return;
+    setIsTogglingBlock(true);
+    try {
+      const updated = pendingBlockToggle.isActive
+        ? await platformApi.blockTenantUser(tenantId, pendingBlockToggle.id)
+        : await platformApi.unblockTenantUser(tenantId, pendingBlockToggle.id);
+      setUsers((prev) => prev?.map((u) => (u.id === updated.id ? updated : u)) ?? null);
+      toast.success(updated.isActive ? `${pendingBlockToggle.name} unblocked.` : `${pendingBlockToggle.name} blocked.`);
+      setPendingBlockToggle(null);
+    } catch {
+      toast.error("Could not update this user's access.");
+    } finally {
+      setIsTogglingBlock(false);
     }
   }
 
@@ -253,7 +273,7 @@ export default function PlatformTenantDetailPage({ params }: PageProps<"/platfor
                       <th className="px-4 py-3 font-medium">Role</th>
                       <th className="px-4 py-3 font-medium">Department</th>
                       <th className="px-4 py-3 font-medium">Active</th>
-                      {profile?.isGlobalAdmin && <th className="px-4 py-3" />}
+                      <th className="px-4 py-3" />
                     </tr>
                   </thead>
                   <tbody>
@@ -266,9 +286,16 @@ export default function PlatformTenantDetailPage({ params }: PageProps<"/platfor
                         <td className="px-4 py-3">
                           <Badge tone={u.isActive ? "green" : "slate"}>{u.isActive ? "Active" : "Inactive"}</Badge>
                         </td>
-                        {profile?.isGlobalAdmin && (
-                          <td className="px-4 py-3 text-right">
-                            {u.role === "SYSTEM_ADMIN" && (
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-3">
+                            <button
+                              type="button"
+                              className="text-xs font-medium text-muted hover:text-foreground"
+                              onClick={() => setPendingBlockToggle(u)}
+                            >
+                              {u.isActive ? "Block" : "Unblock"}
+                            </button>
+                            {profile?.isGlobalAdmin && u.role === "SYSTEM_ADMIN" && (
                               <button
                                 type="button"
                                 className="text-xs font-medium text-red-500 hover:text-red-400"
@@ -277,8 +304,8 @@ export default function PlatformTenantDetailPage({ params }: PageProps<"/platfor
                                 Remove
                               </button>
                             )}
-                          </td>
-                        )}
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -336,6 +363,21 @@ export default function PlatformTenantDetailPage({ params }: PageProps<"/platfor
         isLoading={isRemovingAdmin}
         onConfirm={confirmRemoveAdmin}
         onCancel={() => setPendingRemoveAdmin(null)}
+      />
+
+      <ConfirmDialog
+        open={pendingBlockToggle !== null}
+        title={pendingBlockToggle?.isActive ? `Block ${pendingBlockToggle?.name}?` : `Unblock ${pendingBlockToggle?.name}?`}
+        description={
+          pendingBlockToggle?.isActive
+            ? `"${pendingBlockToggle?.name}" will immediately lose access — their session is cut off on their next request, and they won't be able to sign back in until you unblock them.`
+            : `"${pendingBlockToggle?.name}" will be able to sign back in immediately.`
+        }
+        confirmLabel={pendingBlockToggle?.isActive ? "Block user" : "Unblock user"}
+        danger={pendingBlockToggle?.isActive}
+        isLoading={isTogglingBlock}
+        onConfirm={confirmBlockToggle}
+        onCancel={() => setPendingBlockToggle(null)}
       />
     </div>
   );

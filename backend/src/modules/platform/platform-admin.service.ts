@@ -244,6 +244,17 @@ export class PlatformAdminService {
     await this.users.remove(tenantId, userId);
   }
 
+  // Any platform admin (not just a global one) can act here — support and
+  // bug-fixing on an individual employee's account is exactly what this
+  // console is for, unlike whole-tenant/whole-admin-account destruction,
+  // which stays gated behind requireGlobalAdmin above. Reversible (unlike
+  // deleteTenantAdmin), so no self-check is needed either — a platform
+  // admin identity can never collide with a tenant user's id.
+  async setTenantUserActive(tenantId: string, userId: string, isActive: boolean) {
+    await this.requireTenant(tenantId);
+    return this.users.setActive(tenantId, userId, isActive);
+  }
+
   async getTenantRequests(id: string) {
     await this.requireTenant(id);
     // Platform admin oversight — deliberately bypasses the per-tenant

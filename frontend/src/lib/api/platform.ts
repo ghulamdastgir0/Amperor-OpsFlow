@@ -84,6 +84,20 @@ export async function deleteTenantAdmin(tenantId: string, userId: string) {
   await platformApiClient.delete(`/platform/tenants/${tenantId}/users/${userId}`);
 }
 
+export async function blockTenantUser(tenantId: string, userId: string) {
+  const { data } = await platformApiClient.patch<ApiEnvelope<User>>(
+    `/platform/tenants/${tenantId}/users/${userId}/block`,
+  );
+  return data.data;
+}
+
+export async function unblockTenantUser(tenantId: string, userId: string) {
+  const { data } = await platformApiClient.patch<ApiEnvelope<User>>(
+    `/platform/tenants/${tenantId}/users/${userId}/unblock`,
+  );
+  return data.data;
+}
+
 export async function getTenantRequests(id: string) {
   const { data } = await platformApiClient.get<ApiEnvelope<OpsRequest[]>>(
     `/platform/tenants/${id}/requests`,

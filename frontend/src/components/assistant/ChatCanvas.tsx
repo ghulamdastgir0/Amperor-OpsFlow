@@ -119,7 +119,7 @@ export function ChatCanvas() {
           return (
             <div key={message.id} className={`flex items-end gap-2.5 ${isUser ? "flex-row-reverse" : ""}`}>
               {isUser ? (
-                <Avatar name={user?.email ?? "You"} className="mb-0.5" />
+                <Avatar name={user?.name || user?.email || "You"} className="mb-0.5" />
               ) : (
                 <span className="mb-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-teal-100 text-teal-700">
                   <Bot className="size-4" aria-hidden />

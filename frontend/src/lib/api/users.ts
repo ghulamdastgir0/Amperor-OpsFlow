@@ -52,3 +52,17 @@ export async function unlinkMySlack() {
   const { data } = await apiClient.delete<ApiEnvelope<User>>('/users/me/slack');
   return data.data;
 }
+
+export async function blockUser(userId: string) {
+  const { data } = await apiClient.patch<ApiEnvelope<User>>(`/users/${userId}/block`);
+  return data.data;
+}
+
+export async function unblockUser(userId: string) {
+  const { data } = await apiClient.patch<ApiEnvelope<User>>(`/users/${userId}/unblock`);
+  return data.data;
+}
+
+export async function deleteUser(userId: string) {
+  await apiClient.delete(`/users/${userId}`);
+}

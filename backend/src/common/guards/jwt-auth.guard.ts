@@ -90,6 +90,16 @@ export class JwtAuthGuard implements CanActivate {
       throw new ForbiddenException('This tenant has been blocked');
     }
 
+    // Immediate cutoff: a blocked employee's already-issued JWT stops
+    // working on their very next request, not just at their next login.
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.userId },
+      select: { isActive: true },
+    });
+    if (!user || !user.isActive) {
+      throw new ForbiddenException('This account has been blocked');
+    }
+
     request.user = payload;
     return true;
   }

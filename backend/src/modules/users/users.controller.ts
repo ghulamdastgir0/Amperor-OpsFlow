@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -81,5 +82,28 @@ export class UsersController {
       id,
       dto.role,
     );
+  }
+
+  // Immediate cutoff — see JwtAuthGuard, which re-checks isActive on every
+  // request, not just at login.
+  @Patch(':id/block')
+  @Roles(Role.SYSTEM_ADMIN)
+  block(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    if (id === user.userId) {
+      throw new BadRequestException("You can't block your own account");
+    }
+    return this.usersService.setActive(user.tenantId, id, false);
+  }
+
+  @Patch(':id/unblock')
+  @Roles(Role.SYSTEM_ADMIN)
+  unblock(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.usersService.setActive(user.tenantId, id, true);
+  }
+
+  @Delete(':id')
+  @Roles(Role.SYSTEM_ADMIN)
+  remove(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.usersService.removeEmployee(user.tenantId, user.userId, id);
   }
 }

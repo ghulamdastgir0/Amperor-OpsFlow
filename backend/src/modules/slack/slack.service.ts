@@ -137,9 +137,12 @@ export class SlackService {
     if (event.channel) {
       await this.postMessage(botToken, event.channel, 'On it — give me a moment.', threadTs);
     }
-    const result = await this.assistant.sendMessage(tenant.id, requesterId, {
-      content: text,
-    });
+    const result = await this.assistant.sendMessage(
+      tenant.id,
+      requesterId,
+      { content: text },
+      RequestChannel.slack,
+    );
     const reply = result.messages[result.messages.length - 1];
     if (event.channel && reply) {
       await this.postMessage(botToken, event.channel, reply.content, threadTs);

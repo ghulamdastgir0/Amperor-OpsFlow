@@ -1,0 +1,21 @@
+- generic [ref=e4]:
+  - heading "Sign in" [level=2] [ref=e5]
+  - paragraph [ref=e6]: Enter your workspace details to continue.
+  - generic [ref=e7]:
+    - generic [ref=e8]:
+      - generic [ref=e9]: Tenant ID *
+      - textbox "Tenant ID * Your workspace identifier" [ref=e10]:
+        - /placeholder: e.g. acme-corp
+      - generic [ref=e11]: Your workspace identifier
+    - generic [ref=e12]:
+      - generic [ref=e13]: Email *
+      - textbox "Email *" [ref=e14]:
+        - /placeholder: you@company.com
+    - generic [ref=e15]:
+      - generic [ref=e16]: Password *
+      - textbox "Password *" [ref=e17]:
+        - /placeholder: ••••••••
+    - button "Sign in" [ref=e18]
+  - generic [ref=e19]: or continue with
+  - link "Continue with Slack" [ref=e23] [cursor=pointer]:
+    - /url: http://localhost:4000/api/v1/auth/slack/login

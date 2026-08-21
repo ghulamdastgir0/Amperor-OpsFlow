@@ -5,6 +5,7 @@ export interface StoredUser {
   userId: string;
   tenantId: string;
   email: string;
+  name: string;
   role: Role;
 }
 
@@ -24,7 +25,15 @@ export function getStoredUser(): StoredUser | null {
     const json = JSON.parse(atob(base64)) as Partial<StoredUser> & { exp?: number };
     if (json.exp && Date.now() >= json.exp * 1000) return null;
     if (!json.userId || !json.tenantId || !json.email || !json.role) return null;
-    return { userId: json.userId, tenantId: json.tenantId, email: json.email, role: json.role };
+    // Tokens issued before `name` was added to the payload won't have it —
+    // fall back to email rather than requiring everyone to re-log-in.
+    return {
+      userId: json.userId,
+      tenantId: json.tenantId,
+      email: json.email,
+      name: json.name || json.email,
+      role: json.role,
+    };
   } catch {
     return null;
   }

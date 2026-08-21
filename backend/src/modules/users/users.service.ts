@@ -196,6 +196,78 @@ export class UsersService {
     await this.prisma.user.delete({ where: { id } });
   }
 
+  // Reusable, no self-check baked in — "self" is only meaningful from a
+  // tenant user's own perspective (UsersController checks that before
+  // calling this); Platform Admin has no "self" concept against a tenant
+  // employee, so it calls this directly.
+  async setActive(tenantId: string, targetUserId: string, isActive: boolean) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: targetUserId, tenantId },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    const updated = await this.prisma.user.update({
+      where: { id: targetUserId },
+      data: { isActive },
+    });
+    return this.sanitize(updated);
+  }
+
+  // Hard delete, only when there's nothing to lose — an employee with no
+  // history anywhere they're referenced by id. Every one of those foreign
+  // keys is RESTRICT, not CASCADE, by design (see AGENTS.md: losing audit
+  // records when a user is deleted is the actual bug, not the constraint),
+  // so a real employee's history can't be silently destroyed; this just
+  // turns that into a clear message instead of a raw constraint-violation
+  // error. Anyone with real history should be blocked (setActive false)
+  // instead, which preserves the audit trail.
+  async removeEmployee(
+    tenantId: string,
+    actingUserId: string,
+    targetUserId: string,
+  ) {
+    if (targetUserId === actingUserId) {
+      throw new BadRequestException("You can't remove your own account");
+    }
+    const user = await this.prisma.user.findFirst({
+      where: { id: targetUserId, tenantId },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const [
+      requestCount,
+      approvalCount,
+      auditLogCount,
+      delegationCount,
+      broadcastCount,
+    ] = await Promise.all([
+      this.prisma.request.count({ where: { requesterId: targetUserId } }),
+      this.prisma.approval.count({ where: { approverId: targetUserId } }),
+      this.prisma.auditLog.count({ where: { actorId: targetUserId } }),
+      this.prisma.financeDelegation.count({
+        where: {
+          OR: [
+            { grantedByAdminId: targetUserId },
+            { delegateManagerId: targetUserId },
+          ],
+        },
+      }),
+      this.prisma.roleBroadcast.count({ where: { senderId: targetUserId } }),
+    ]);
+    if (
+      requestCount > 0 ||
+      approvalCount > 0 ||
+      auditLogCount > 0 ||
+      delegationCount > 0 ||
+      broadcastCount > 0
+    ) {
+      throw new BadRequestException(
+        "This employee has request, approval, or other history and can't be removed — block their account instead to preserve the audit trail.",
+      );
+    }
+
+    await this.prisma.user.delete({ where: { id: targetUserId } });
+  }
+
   // Used by Slack OAuth (install or sign-in) to create a user that
   // authenticates via Slack only (no password) — the "Add to Slack"
   // installer becomes SYSTEM_ADMIN; a workspace member self-provisioning via

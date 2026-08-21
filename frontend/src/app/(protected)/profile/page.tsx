@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { KeyRound, MessageSquare, User as UserIcon } from "lucide-react";
+import { KeyRound, MessageSquare, Pencil, User as UserIcon } from "lucide-react";
 import { usersApi } from "@/lib/api";
 import type { User } from "@/lib/types";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Field";
 import { Avatar } from "@/components/ui/Avatar";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Modal } from "@/components/ui/Modal";
 import { SkeletonRows } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 
@@ -24,11 +25,20 @@ const ROLE_LABELS: Record<User["role"], string> = {
 
 function DetailsForm({ profile, onSaved }: { profile: User; onSaved: (user: User) => void }) {
   const toast = useToast();
+  const [isOpen, setIsOpen] = useState(false);
   const [name, setName] = useState(profile.name);
   const [department, setDepartment] = useState(profile.department ?? "");
   const [isSaving, setIsSaving] = useState(false);
 
   const dirty = name !== profile.name || department !== (profile.department ?? "");
+
+  function openModal() {
+    // Reset to the current saved values each time it's opened, so a
+    // cancelled edit never lingers into the next open.
+    setName(profile.name);
+    setDepartment(profile.department ?? "");
+    setIsOpen(true);
+  }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -40,6 +50,7 @@ function DetailsForm({ profile, onSaved }: { profile: User; onSaved: (user: User
       });
       onSaved(updated);
       toast.success("Profile updated.");
+      setIsOpen(false);
     } catch {
       toast.error("Could not update your profile.");
     } finally {
@@ -49,36 +60,74 @@ function DetailsForm({ profile, onSaved }: { profile: User; onSaved: (user: User
 
   return (
     <Card>
-      <div className="mb-4 flex items-center gap-2">
-        <UserIcon className="size-4 text-primary" aria-hidden />
-        <h2 className="font-heading text-sm font-semibold text-foreground">Your details</h2>
-      </div>
-      <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
-        <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
-        <Input label="Email" value={profile.email} disabled hint="Contact a system admin to change your email." />
-        <Input
-          label="Department"
-          placeholder="e.g. Engineering"
-          value={department}
-          onChange={(e) => setDepartment(e.target.value)}
-        />
-        <Input label="Access role" value={ROLE_LABELS[profile.role]} disabled hint="Only a system admin can change this." />
-        <div className="sm:col-span-2">
-          <Button type="submit" isLoading={isSaving} disabled={!dirty} className="w-fit">
-            Save changes
-          </Button>
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <UserIcon className="size-4 text-primary" aria-hidden />
+          <h2 className="font-heading text-sm font-semibold text-foreground">Your details</h2>
         </div>
-      </form>
+        <Button variant="outline" size="sm" onClick={openModal}>
+          <Pencil className="size-3.5" aria-hidden />
+          Edit
+        </Button>
+      </div>
+      <dl className="grid gap-4 text-sm sm:grid-cols-2">
+        <div>
+          <dt className="text-xs text-muted">Name</dt>
+          <dd className="mt-0.5 text-foreground">{profile.name}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted">Email</dt>
+          <dd className="mt-0.5 text-foreground">{profile.email}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted">Department</dt>
+          <dd className="mt-0.5 text-foreground">{profile.department || "—"}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted">Access role</dt>
+          <dd className="mt-0.5 text-foreground">{ROLE_LABELS[profile.role]}</dd>
+        </div>
+      </dl>
+
+      <Modal open={isOpen} title="Edit your details" onClose={() => setIsOpen(false)}>
+        <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
+          <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
+          <Input label="Email" value={profile.email} disabled hint="Contact a system admin to change your email." />
+          <Input
+            label="Department"
+            placeholder="e.g. Engineering"
+            value={department}
+            onChange={(e) => setDepartment(e.target.value)}
+          />
+          <Input label="Access role" value={ROLE_LABELS[profile.role]} disabled hint="Only a system admin can change this." />
+          <div className="flex justify-end gap-2 sm:col-span-2">
+            <Button type="button" variant="outline" onClick={() => setIsOpen(false)} disabled={isSaving}>
+              Cancel
+            </Button>
+            <Button type="submit" isLoading={isSaving} disabled={!dirty}>
+              Save changes
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </Card>
   );
 }
 
 function PasswordForm({ hasPassword, onChanged }: { hasPassword: boolean; onChanged: () => void }) {
   const toast = useToast();
+  const [isOpen, setIsOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+
+  function openModal() {
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setIsOpen(true);
+  }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -97,6 +146,7 @@ function PasswordForm({ hasPassword, onChanged }: { hasPassword: boolean; onChan
       setNewPassword("");
       setConfirmPassword("");
       onChanged();
+      setIsOpen(false);
     } catch (err) {
       const status = (err as { response?: { status?: number } }).response?.status;
       toast.error(status === 401 ? "Current password is incorrect." : "Could not change your password.");
@@ -107,50 +157,64 @@ function PasswordForm({ hasPassword, onChanged }: { hasPassword: boolean; onChan
 
   return (
     <Card>
-      <div className="mb-4 flex items-center gap-2">
-        <KeyRound className="size-4 text-primary" aria-hidden />
-        <h2 className="font-heading text-sm font-semibold text-foreground">
-          {hasPassword ? "Change password" : "Set a password"}
-        </h2>
-      </div>
-      {!hasPassword && (
-        <p className="mb-4 text-sm text-muted">
-          Your account currently signs in via Slack only. Set a password so you can also sign in directly.
-        </p>
-      )}
-      <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-3">
-        {hasPassword && (
-          <Input
-            label="Current password"
-            type="password"
-            value={currentPassword}
-            onChange={(e) => setCurrentPassword(e.target.value)}
-            required
-          />
-        )}
-        <Input
-          label="New password"
-          type="password"
-          hint="At least 8 characters"
-          value={newPassword}
-          onChange={(e) => setNewPassword(e.target.value)}
-          required
-          minLength={8}
-        />
-        <Input
-          label="Confirm new password"
-          type="password"
-          value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
-          required
-          minLength={8}
-        />
-        <div className="sm:col-span-3">
-          <Button type="submit" isLoading={isSaving} className="w-fit">
-            {hasPassword ? "Change password" : "Set password"}
-          </Button>
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <KeyRound className="size-4 text-primary" aria-hidden />
+          <h2 className="font-heading text-sm font-semibold text-foreground">Password</h2>
         </div>
-      </form>
+        <Button variant="outline" size="sm" onClick={openModal}>
+          <Pencil className="size-3.5" aria-hidden />
+          {hasPassword ? "Change password" : "Set password"}
+        </Button>
+      </div>
+      <p className="mt-2 text-sm text-muted">
+        {hasPassword
+          ? "You can sign in directly with this password, in addition to Slack."
+          : "Your account currently signs in via Slack only. Set a password so you can also sign in directly."}
+      </p>
+
+      <Modal
+        open={isOpen}
+        title={hasPassword ? "Change password" : "Set a password"}
+        onClose={() => setIsOpen(false)}
+      >
+        <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-3">
+          {hasPassword && (
+            <Input
+              label="Current password"
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              required
+            />
+          )}
+          <Input
+            label="New password"
+            type="password"
+            hint="At least 8 characters"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            required
+            minLength={8}
+          />
+          <Input
+            label="Confirm new password"
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            required
+            minLength={8}
+          />
+          <div className="flex justify-end gap-2 sm:col-span-3">
+            <Button type="button" variant="outline" onClick={() => setIsOpen(false)} disabled={isSaving}>
+              Cancel
+            </Button>
+            <Button type="submit" isLoading={isSaving}>
+              {hasPassword ? "Change password" : "Set password"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </Card>
   );
 }

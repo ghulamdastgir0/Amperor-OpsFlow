@@ -86,6 +86,16 @@ export class PlatformAdminController {
     return this.platformAdminService.deleteTenantAdmin(adminId, id, userId);
   }
 
+  @Patch('tenants/:id/users/:userId/block')
+  blockTenantUser(@Param('id') id: string, @Param('userId') userId: string) {
+    return this.platformAdminService.setTenantUserActive(id, userId, false);
+  }
+
+  @Patch('tenants/:id/users/:userId/unblock')
+  unblockTenantUser(@Param('id') id: string, @Param('userId') userId: string) {
+    return this.platformAdminService.setTenantUserActive(id, userId, true);
+  }
+
   @Get('tenants/:id/requests')
   getTenantRequests(@Param('id') id: string) {
     return this.platformAdminService.getTenantRequests(id);

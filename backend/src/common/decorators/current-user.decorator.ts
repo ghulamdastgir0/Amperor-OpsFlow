@@ -6,6 +6,7 @@ export interface AuthenticatedUser {
   userId: string;
   tenantId: string;
   email: string;
+  name: string;
   role: Role;
 }
 

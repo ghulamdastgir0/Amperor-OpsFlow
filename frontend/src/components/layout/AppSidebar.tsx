@@ -1,10 +1,23 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutGrid, Bot, Inbox, Wallet, UserCog, ScrollText, Tags, LogOut, Sparkles } from "lucide-react";
+import {
+  LayoutGrid,
+  Bot,
+  Inbox,
+  Wallet,
+  UserCog,
+  ScrollText,
+  Tags,
+  LogOut,
+  Sparkles,
+  MoreHorizontal,
+  X,
+} from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { clearAuthToken } from "@/lib/api";
+import { clearAuthToken, usersApi } from "@/lib/api";
 import { Avatar } from "@/components/ui/Avatar";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { cn } from "@/lib/cn";
@@ -22,10 +35,33 @@ const NAV_ITEMS = [
   { href: "/admin/roles", label: "Roles & Messaging", icon: Tags, roles: ["SYSTEM_ADMIN"] as Role[] },
 ];
 
+// How many nav items fit directly in the mobile bottom bar — the rest live
+// behind "More". Whatever role-filtered list a given user ends up with, the
+// first 4 are the ones judged most commonly reached for (Home/Assistant/
+// Action Hub/Finance for anyone with finance access); everything past that
+// is admin/setup-oriented and used far less often.
+const BOTTOM_NAV_PRIMARY_COUNT = 4;
+
 export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { user } = useAuth();
+  const [moreOpen, setMoreOpen] = useState(false);
+  // The JWT's `name` claim can be stale — set once at login, so an older,
+  // still-valid token predates this claim or reflects an old name. Fetching
+  // the live profile once keeps the sidebar correct without forcing a
+  // re-login just to see a name/avatar change.
+  const [liveName, setLiveName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    usersApi
+      .getMyProfile()
+      .then((profile) => setLiveName(profile.name))
+      .catch(() => {});
+  }, [user]);
+
+  const displayName = liveName || user?.name || user?.email || "";
 
   function handleSignOut() {
     clearAuthToken();
@@ -33,64 +69,185 @@ export function AppSidebar() {
   }
 
   const items = NAV_ITEMS.filter((item) => !item.roles || (user && item.roles.includes(user.role)));
+  const primaryItems = items.slice(0, BOTTOM_NAV_PRIMARY_COUNT);
+  const overflowItems = items.slice(BOTTOM_NAV_PRIMARY_COUNT);
+
+  function isActive(item: (typeof NAV_ITEMS)[number]) {
+    return item.match ? item.match(pathname) : pathname.startsWith(item.href);
+  }
 
   return (
-    <aside className="flex h-screen w-64 shrink-0 flex-col border-r border-border bg-surface">
-      <div className="flex items-center gap-2 px-5 py-5">
-        <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <Sparkles className="size-4" aria-hidden />
+    <>
+      {/* Desktop / tablet: full left sidebar */}
+      <aside className="hidden h-screen w-64 shrink-0 flex-col border-r border-border bg-surface md:flex">
+        <div className="flex items-center gap-2 px-5 py-5">
+          <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <Sparkles className="size-4" aria-hidden />
+          </div>
+          <span className="font-heading text-base font-semibold text-foreground">OpsFlow</span>
         </div>
-        <span className="font-heading text-base font-semibold text-foreground">OpsFlow</span>
-      </div>
 
-      <nav className="flex flex-1 flex-col gap-1 px-3">
-        {items.map((item) => {
-          const isActive = item.match ? item.match(pathname) : pathname.startsWith(item.href);
+        <nav className="flex flex-1 flex-col gap-1 px-3">
+          {items.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                  isActive(item)
+                    ? "bg-indigo-50 text-primary dark:bg-indigo-500/10"
+                    : "text-muted hover:bg-slate-50 hover:text-foreground dark:hover:bg-white/5",
+                )}
+              >
+                <Icon className="size-4" aria-hidden />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+
+        <div className="border-t border-border px-4 py-3">
+          <ThemeToggle />
+        </div>
+
+        {user && (
+          <div className="flex items-center gap-2.5 border-t border-border px-4 py-4">
+            <Link
+              href="/profile"
+              className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md -m-1.5 p-1.5 hover:bg-slate-50 dark:hover:bg-white/5"
+            >
+              <Avatar name={displayName} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-foreground">{displayName}</p>
+                <p className="truncate text-xs text-muted">{user.role.replace(/_/g, " ")}</p>
+              </div>
+            </Link>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              aria-label="Sign out"
+              className="rounded-md p-1.5 text-muted hover:bg-slate-100 hover:text-foreground dark:hover:bg-white/5"
+            >
+              <LogOut className="size-4" />
+            </button>
+          </div>
+        )}
+      </aside>
+
+      {/* Mobile: bottom nav, most-used items + More */}
+      <nav className="fixed inset-x-0 bottom-0 z-40 flex h-16 items-stretch border-t border-border bg-surface md:hidden">
+        {primaryItems.map((item) => {
           const Icon = item.icon;
+          const active = isActive(item);
           return (
             <Link
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                isActive
-                  ? "bg-indigo-50 text-primary dark:bg-indigo-500/10"
-                  : "text-muted hover:bg-slate-50 hover:text-foreground dark:hover:bg-white/5",
+                "flex flex-1 flex-col items-center justify-center gap-1 text-[11px] font-medium",
+                active ? "text-primary" : "text-muted",
               )}
             >
-              <Icon className="size-4" aria-hidden />
-              {item.label}
+              <Icon className="size-5" aria-hidden />
+              <span className="truncate px-1">{item.label}</span>
             </Link>
           );
         })}
-      </nav>
-
-      <div className="border-t border-border px-4 py-3">
-        <ThemeToggle />
-      </div>
-
-      {user && (
-        <div className="flex items-center gap-2.5 border-t border-border px-4 py-4">
-          <Link
-            href="/profile"
-            className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md -m-1.5 p-1.5 hover:bg-slate-50 dark:hover:bg-white/5"
-          >
-            <Avatar name={user.email} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-foreground">{user.email}</p>
-              <p className="truncate text-xs text-muted">{user.role.replace(/_/g, " ")}</p>
-            </div>
-          </Link>
+        {(overflowItems.length > 0 || user) && (
           <button
             type="button"
-            onClick={handleSignOut}
-            aria-label="Sign out"
-            className="rounded-md p-1.5 text-muted hover:bg-slate-100 hover:text-foreground dark:hover:bg-white/5"
+            onClick={() => setMoreOpen(true)}
+            className="flex flex-1 flex-col items-center justify-center gap-1 text-[11px] font-medium text-muted"
           >
-            <LogOut className="size-4" />
+            <MoreHorizontal className="size-5" aria-hidden />
+            <span>More</span>
           </button>
+        )}
+      </nav>
+
+      {/* Mobile: "More" sheet — remaining nav items, theme, profile, sign out */}
+      {moreOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <button
+            type="button"
+            aria-label="Close menu"
+            onClick={() => setMoreOpen(false)}
+            className="absolute inset-0 bg-slate-900/40"
+          />
+          <div className="absolute inset-x-0 bottom-0 rounded-t-2xl border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] shadow-xl">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <span className="font-heading text-sm font-semibold text-foreground">More</span>
+              <button
+                type="button"
+                onClick={() => setMoreOpen(false)}
+                aria-label="Close"
+                className="rounded-md p-1 text-muted hover:bg-slate-100 hover:text-foreground dark:hover:bg-white/5"
+              >
+                <X className="size-4" aria-hidden />
+              </button>
+            </div>
+
+            <div className="flex max-h-[60vh] flex-col overflow-y-auto px-2 py-2">
+              {overflowItems.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setMoreOpen(false)}
+                    className={cn(
+                      "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium",
+                      isActive(item)
+                        ? "bg-indigo-50 text-primary dark:bg-indigo-500/10"
+                        : "text-foreground hover:bg-slate-50 dark:hover:bg-white/5",
+                    )}
+                  >
+                    <Icon className="size-4" aria-hidden />
+                    {item.label}
+                  </Link>
+                );
+              })}
+
+              {overflowItems.length > 0 && <div className="my-2 border-t border-border" />}
+
+              <div className="flex items-center justify-between px-3 py-2">
+                <span className="text-sm font-medium text-foreground">Theme</span>
+                <ThemeToggle />
+              </div>
+
+              {user && (
+                <>
+                  <div className="my-2 border-t border-border" />
+                  <Link
+                    href="/profile"
+                    onClick={() => setMoreOpen(false)}
+                    className="flex items-center gap-2.5 rounded-lg px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-white/5"
+                  >
+                    <Avatar name={displayName} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">{displayName}</p>
+                      <p className="truncate text-xs text-muted">{user.role.replace(/_/g, " ")}</p>
+                    </div>
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMoreOpen(false);
+                      handleSignOut();
+                    }}
+                    className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
+                  >
+                    <LogOut className="size-4" aria-hidden />
+                    Sign out
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
         </div>
       )}
-    </aside>
+    </>
   );
 }
