@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AlertCircle, ArrowLeft, Check, Paperclip, X } from "lucide-react";
-import { requestsApi } from "@/lib/api";
+import { requestsApi, usersApi } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/components/ui/Toast";
 import type { OpsRequest, Role } from "@/lib/types";
@@ -37,6 +37,10 @@ export function RequestDetail({ requestId }: { requestId: string }) {
   const [decidingAs, setDecidingAs] = useState<"APPROVED" | "REJECTED" | null>(null);
   const [isUploadingProof, setIsUploadingProof] = useState(false);
   const proofInputRef = useRef<HTMLInputElement>(null);
+  // EmployeeRole tags (HR, IT Support, etc.) are separate from the fixed
+  // Role enum ELIGIBLE_ROLES above — needed to tell whether this user can
+  // decide a PENDING_ROLE_APPROVAL request routed to a role they hold.
+  const [myRoleIds, setMyRoleIds] = useState<string[]>([]);
 
   function load() {
     requestsApi
@@ -46,6 +50,12 @@ export function RequestDetail({ requestId }: { requestId: string }) {
   }
 
   useEffect(load, [requestId]);
+  useEffect(() => {
+    usersApi
+      .getMyProfile()
+      .then((profile) => setMyRoleIds((profile.employeeRoles ?? []).map((r) => r.id)))
+      .catch(() => setMyRoleIds([]));
+  }, []);
 
   async function decide(decision: "APPROVED" | "REJECTED") {
     if (decision === "REJECTED" && showReasonFor !== "REJECTED") {
@@ -133,7 +143,14 @@ export function RequestDetail({ requestId }: { requestId: string }) {
       : ELIGIBLE_ROLES.PENDING_FINANCE_APPROVAL ?? [];
   const eligibleRoles =
     request.status === "PENDING_FINANCE_APPROVAL" ? financeEligibleRoles : ELIGIBLE_ROLES[request.status] ?? [];
-  const canDecide = user && eligibleRoles.includes(user.role);
+  // PENDING_ROLE_APPROVAL isn't gated by the fixed Role enum at all — same
+  // shared-queue model as Manager/Finance, just keyed on EmployeeRole
+  // membership instead (or SYSTEM_ADMIN, same fallback the backend allows).
+  const canDecideRoleStage =
+    request.status === "PENDING_ROLE_APPROVAL" &&
+    !!user &&
+    (user.role === "SYSTEM_ADMIN" || (!!request.routedRoleId && myRoleIds.includes(request.routedRoleId)));
+  const canDecide = (user && eligibleRoles.includes(user.role)) || canDecideRoleStage;
   const canAttachProof =
     user &&
     request.status === "APPROVED" &&

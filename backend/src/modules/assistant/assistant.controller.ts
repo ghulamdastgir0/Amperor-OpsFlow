@@ -17,12 +17,21 @@ export class AssistantController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: SendMessageDto,
   ) {
-    return this.assistantService.sendMessage(user.tenantId, user.userId, dto, RequestChannel.assistant_ui);
+    return this.assistantService.sendMessage(
+      user.tenantId,
+      user.userId,
+      dto,
+      RequestChannel.assistant_ui,
+    );
   }
 
   @Get('conversations')
   listConversations(@CurrentUser() user: AuthenticatedUser) {
-    return this.assistantService.listConversations(user.tenantId, user.userId, RequestChannel.assistant_ui);
+    return this.assistantService.listConversations(
+      user.tenantId,
+      user.userId,
+      RequestChannel.assistant_ui,
+    );
   }
 
   @Get('conversations/:id/messages')

@@ -9,10 +9,14 @@ export type RequestStatus =
   | 'PENDING_POLICY_CHECK'
   | 'PENDING_MANAGER_APPROVAL'
   | 'PENDING_FINANCE_APPROVAL'
+  // Routed to an EmployeeRole (e.g. HR) that must actually decide it.
+  | 'PENDING_ROLE_APPROVAL'
   | 'APPROVED'
   | 'REJECTED'
   | 'ESCALATED'
   | 'COMPLETED'
+  // Routed to an EmployeeRole purely as an FYI — logged, no approval expected.
+  | 'NOTED'
   | 'CANCELLED';
 
 export type ExecutionStepStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'SKIPPED';
@@ -120,6 +124,9 @@ export interface OpsRequest {
   parsedIntent: string;
   status: RequestStatus;
   createdAt: string;
+  // Set when routed to an EmployeeRole (see RequestStatus.PENDING_ROLE_APPROVAL
+  // / NOTED) — whoever holds this role can decide/see the request too.
+  routedRoleId?: string | null;
   attachments?: Attachment[];
   executionSteps?: ExecutionStep[];
   policyCitations?: PolicyCitation[];

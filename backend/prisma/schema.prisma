@@ -39,10 +39,18 @@ enum RequestStatus {
   PENDING_POLICY_CHECK
   PENDING_MANAGER_APPROVAL
   PENDING_FINANCE_APPROVAL
+  // Routed to an EmployeeRole (e.g. HR) that must actually decide it — not
+  // the dollar-amount pipeline above. See RequestsService.decideRoleStage.
+  PENDING_ROLE_APPROVAL
   APPROVED
   REJECTED
   ESCALATED
   COMPLETED
+  // Routed to an EmployeeRole purely as an FYI (e.g. "ask IT about the wifi
+  // password") — logged and forwarded, but no approval was ever expected.
+  // Distinct from COMPLETED so the UI/requester can tell "nothing needed
+  // deciding" apart from "something was decided."
+  NOTED
   CANCELLED
 }
 
@@ -147,6 +155,7 @@ model EmployeeRole {
   tenant           Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   members          UserEmployeeRole[]
   broadcastTargets RoleBroadcastTarget[]
+  routedRequests   Request[]
 
   @@unique([tenantId, name])
   @@map("employee_roles")
@@ -279,10 +288,32 @@ model Request {
   // of which employee filed it; falls back to the requester's department
   // (old behavior) when the assistant couldn't confidently classify it.
   budgetDepartment String?      @map("budget_department")
+  // Set when the assistant's file_request routed this to a specific
+  // EmployeeRole (e.g. "Human Resources (HR)") — the source of truth for
+  // who's allowed to act on a PENDING_ROLE_APPROVAL request (any holder of
+  // this role, or SYSTEM_ADMIN), not just a notification target. Null for
+  // the ordinary dollar-amount pipeline.
+  routedRoleId   String?        @map("routed_role_id") @db.Uuid
+  // Only meaningful alongside routedRoleId: true means a role-holder must
+  // actually decide it (-> PENDING_ROLE_APPROVAL), false means it's purely
+  // informational (-> NOTED, no decision expected). Set once at filing time
+  // by the assistant; runPipeline reads it back since routing happens in a
+  // later, separate call (after Slack file ingestion, for attachment-bearing
+  // requests).
+  requiresApproval Boolean?     @map("requires_approval")
+  // Structured leave dates, extracted by the assistant when intentType is a
+  // leave request (see FILING DECISIONS' slot-filling requirement — it must
+  // have these before filing). Used to compute who's currently on leave for
+  // EmployeeRolesService's approver-availability fallback — without a real
+  // date range, "is this person on leave right now" can't be answered
+  // programmatically at all.
+  leaveStartDate DateTime?      @map("leave_start_date") @db.Date
+  leaveEndDate   DateTime?      @map("leave_end_date") @db.Date
   createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz
 
-  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  requester User            @relation("RequestRequester", fields: [requesterId], references: [id])
+  tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  requester  User            @relation("RequestRequester", fields: [requesterId], references: [id])
+  routedRole EmployeeRole?   @relation(fields: [routedRoleId], references: [id])
   attachments    Attachment[]
   executionSteps ExecutionStep[]
   policyCitations PolicyCitation[]

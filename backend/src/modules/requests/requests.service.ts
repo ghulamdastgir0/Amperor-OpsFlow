@@ -18,7 +18,10 @@ import {
   RequestStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PoliciesService, RESTRICTED_DOC_VISIBLE_ROLES } from '../policies/policies.service';
+import {
+  PoliciesService,
+  RESTRICTED_DOC_VISIBLE_ROLES,
+} from '../policies/policies.service';
 import { FinanceDelegationsService } from '../finance-delegations/finance-delegations.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { OcrService } from '../slack/ocr.service';
@@ -99,6 +102,15 @@ export class RequestsService {
   ) {}
 
   async create(tenantId: string, requesterId: string, dto: CreateRequestDto) {
+    const routedRole = dto.routeToRoleName
+      ? await this.prisma.employeeRole.findFirst({
+          where: {
+            tenantId,
+            name: { equals: dto.routeToRoleName, mode: 'insensitive' },
+          },
+        })
+      : null;
+
     const request = await this.prisma.request.create({
       data: {
         tenantId,
@@ -109,6 +121,12 @@ export class RequestsService {
         status: RequestStatus.PENDING_POLICY_CHECK,
         statedAmount: dto.statedAmount,
         budgetDepartment: dto.budgetDepartment,
+        routedRoleId: routedRole?.id,
+        requiresApproval: routedRole ? dto.requiresApproval : undefined,
+        leaveStartDate: dto.leaveStartDate
+          ? new Date(dto.leaveStartDate)
+          : undefined,
+        leaveEndDate: dto.leaveEndDate ? new Date(dto.leaveEndDate) : undefined,
       },
     });
 
@@ -126,23 +144,48 @@ export class RequestsService {
     return request;
   }
 
+  // Any user holding the EmployeeRole a request was routed to (see
+  // decideRoleStage) can see/act on it too, on top of the fixed-Role
+  // BROAD_VISIBILITY_ROLES check below — EmployeeRole membership is
+  // per-tenant data, not part of the Role enum, so it has to be a DB lookup
+  // rather than a static set.
+  private async getHeldRoleIds(userId: string): Promise<string[]> {
+    const memberships = await this.prisma.userEmployeeRole.findMany({
+      where: { userId },
+      select: { employeeRoleId: true },
+    });
+    return memberships.map((m) => m.employeeRoleId);
+  }
+
   // A plain EMPLOYEE only ever sees their own requests here — this app's
   // approval roles (MANAGER_ROLES minus SYSTEM_ADMIN, plus FINANCE_APPROVER)
   // are tenant-wide, not department-scoped, so anyone holding one is already
   // trusted to review any request at that stage; an EMPLOYEE is not. Was
   // previously unfiltered (any authenticated user saw every request in the
   // tenant) — real gap, fixed 2026-08-20.
-  findAll(
+  async findAll(
     tenantId: string,
     actingUser: { userId: string; role: Role },
     status?: RequestStatus,
   ) {
     const canSeeAll = BROAD_VISIBILITY_ROLES.has(actingUser.role);
+    const heldRoleIds = canSeeAll
+      ? []
+      : await this.getHeldRoleIds(actingUser.userId);
     return this.prisma.request.findMany({
       where: {
         tenantId,
         ...(status ? { status } : {}),
-        ...(canSeeAll ? {} : { requesterId: actingUser.userId }),
+        ...(canSeeAll
+          ? {}
+          : {
+              OR: [
+                { requesterId: actingUser.userId },
+                ...(heldRoleIds.length > 0
+                  ? [{ routedRoleId: { in: heldRoleIds } }]
+                  : []),
+              ],
+            }),
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -160,7 +203,13 @@ export class RequestsService {
     if (!request) throw new NotFoundException('Request not found');
     if (
       request.requesterId !== actingUser.userId &&
-      !BROAD_VISIBILITY_ROLES.has(actingUser.role)
+      !BROAD_VISIBILITY_ROLES.has(actingUser.role) &&
+      !(
+        request.routedRoleId &&
+        (await this.getHeldRoleIds(actingUser.userId)).includes(
+          request.routedRoleId,
+        )
+      )
     ) {
       throw new ForbiddenException("You don't have access to this request");
     }
@@ -176,7 +225,9 @@ export class RequestsService {
   }
 
   async updateStatus(tenantId: string, id: string, status: RequestStatus) {
-    const request = await this.prisma.request.findFirst({ where: { id, tenantId } });
+    const request = await this.prisma.request.findFirst({
+      where: { id, tenantId },
+    });
     if (!request) throw new NotFoundException('Request not found');
     return this.prisma.request.update({ where: { id }, data: { status } });
   }
@@ -237,8 +288,35 @@ export class RequestsService {
           'Awaiting Finance Approval',
           ExecutionStepStatus.IN_PROGRESS,
         );
-        return this.setStatus(requestId, RequestStatus.PENDING_FINANCE_APPROVAL);
+        return this.setStatus(
+          requestId,
+          RequestStatus.PENDING_FINANCE_APPROVAL,
+        );
       }
+
+      // No dollar amount at all — this isn't an expense flow. If it was
+      // routed to an EmployeeRole (leave request -> HR, etc.), that role's
+      // holders decide it for real (or, for a pure FYI like "ask IT about
+      // the wifi password"), it's just logged — instead of every $0 request
+      // silently auto-completing with no decision ever made, regardless of
+      // what it actually was.
+      if (request.routedRoleId) {
+        if (request.requiresApproval) {
+          await this.addStep(
+            requestId,
+            'Awaiting Role Approval',
+            ExecutionStepStatus.IN_PROGRESS,
+          );
+          return this.setStatus(requestId, RequestStatus.PENDING_ROLE_APPROVAL);
+        }
+        await this.addStep(
+          requestId,
+          'Logged — No Approval Needed',
+          ExecutionStepStatus.COMPLETED,
+        );
+        return this.setStatus(requestId, RequestStatus.NOTED);
+      }
+
       await this.addStep(requestId, 'Completed', ExecutionStepStatus.COMPLETED);
       return this.setStatus(requestId, RequestStatus.COMPLETED);
     }
@@ -271,14 +349,16 @@ export class RequestsService {
     // to the unverified stated amount so delegation-matching and the
     // recorded Approval.spendingAmount still reflect the real figure being
     // decided on, even before a receipt exists.
-    const effectiveAmount = totalAmount > 0 ? totalAmount : Number(request.statedAmount ?? 0);
+    const effectiveAmount =
+      totalAmount > 0 ? totalAmount : Number(request.statedAmount ?? 0);
     const hasVerifiedAttachment = request.attachments.length > 0;
     const department = request.requester.department ?? 'ALL';
     // Which Budget row this approval would actually draw down — the expense
     // category if the assistant classified one, not the requester's own
     // department (that's a separate concept, used only for delegation
     // matching above). See decideFinanceStage/decideEscalatedStage.
-    const budgetScope = request.budgetDepartment ?? request.requester.department ?? 'ALL';
+    const budgetScope =
+      request.budgetDepartment ?? request.requester.department ?? 'ALL';
 
     let result;
     switch (request.status) {
@@ -317,13 +397,32 @@ export class RequestsService {
           reason,
         );
         break;
+      case RequestStatus.PENDING_ROLE_APPROVAL:
+        result = await this.decideRoleStage(
+          tenantId,
+          actingUser,
+          request.id,
+          request.requesterId,
+          request.routedRoleId!,
+          decision,
+          reason,
+        );
+        break;
       default:
         throw new ConflictException('Request is not awaiting approval');
     }
 
     // Best-effort — never lets a notification failure fail the decision itself.
-    if (result.status === RequestStatus.APPROVED || result.status === RequestStatus.REJECTED) {
-      await this.notifyRequesterOfDecision(tenantId, request.requester, result.status, request.rawPrompt);
+    if (
+      result.status === RequestStatus.APPROVED ||
+      result.status === RequestStatus.REJECTED
+    ) {
+      await this.notifyRequesterOfDecision(
+        tenantId,
+        request.requester,
+        result.status,
+        request.rawPrompt,
+      );
     }
     return result;
   }
@@ -528,6 +627,70 @@ export class RequestsService {
     return budgetWarning ? { ...updated, budgetWarning } : updated;
   }
 
+  // A shared queue, same shape as Manager/Finance above: any user holding
+  // the routed EmployeeRole (or SYSTEM_ADMIN) can decide it — not a single
+  // assigned owner. Everyone holding the role got notified when it was
+  // filed (EmployeeRolesService.notifyRoleForRequest); whoever acts first
+  // wins, and the status check at the top of decide() already stops a
+  // second holder from double-deciding it.
+  private async decideRoleStage(
+    tenantId: string,
+    actingUser: AuthenticatedUser,
+    requestId: string,
+    requesterId: string,
+    routedRoleId: string,
+    decision: FinalDecision,
+    reason: string | undefined,
+  ) {
+    // A role-holder deciding their own request is a conflict of interest
+    // (e.g. someone in HR filing their own leave request) — blocked even for
+    // a SYSTEM_ADMIN, since the self-decide problem is orthogonal to role
+    // authority. notifyRoleForRequest already excludes the requester from
+    // who gets pinged for the same reason.
+    if (actingUser.userId === requesterId) {
+      throw new ForbiddenException(
+        'You cannot decide your own request — another role-holder or a system admin needs to act on it',
+      );
+    }
+
+    if (actingUser.role !== Role.SYSTEM_ADMIN) {
+      const holdsRole = await this.prisma.userEmployeeRole.findFirst({
+        where: { userId: actingUser.userId, employeeRoleId: routedRoleId },
+      });
+      if (!holdsRole) {
+        throw new ForbiddenException(
+          'Only someone holding the role this was routed to, or a system admin, can act on this request',
+        );
+      }
+    }
+
+    await this.recordApproval(
+      requestId,
+      actingUser.userId,
+      decision,
+      reason,
+      0,
+      false,
+    );
+    await this.completeStep(requestId, 'Awaiting Role Approval');
+    await this.audit(
+      tenantId,
+      actingUser.userId,
+      requestId,
+      `REQUEST_ROLE_${decision}`,
+      {
+        routedRoleId,
+      },
+    );
+
+    return this.setStatus(
+      requestId,
+      decision === ApprovalDecision.APPROVED
+        ? RequestStatus.APPROVED
+        : RequestStatus.REJECTED,
+    );
+  }
+
   // Finance/Admin closes out an APPROVED-but-unverified request (the
   // "reserve now, prove later" path — see runPipeline) by attaching the
   // actual receipt/invoice. This becomes a real Attachment row via the same
@@ -588,18 +751,30 @@ export class RequestsService {
           currency: parsed.currency,
           lineItems: parsed.lineItems,
           taxId: parsed.taxId,
-          documentDate: parsed.documentDate ? new Date(parsed.documentDate) : undefined,
+          documentDate: parsed.documentDate
+            ? new Date(parsed.documentDate)
+            : undefined,
           ocrRawText: parsed.rawText,
         },
       });
       attachmentIds.push(attachment.id);
     }
 
-    await this.addStep(requestId, 'Proof Attached — Reserved Funds Spent', ExecutionStepStatus.COMPLETED);
-    await this.audit(tenantId, actingUser.userId, requestId, 'REQUEST_PROOF_ATTACHED', {
-      attachmentIds,
-      statedAmount: request.statedAmount ?? null,
-    });
+    await this.addStep(
+      requestId,
+      'Proof Attached — Reserved Funds Spent',
+      ExecutionStepStatus.COMPLETED,
+    );
+    await this.audit(
+      tenantId,
+      actingUser.userId,
+      requestId,
+      'REQUEST_PROOF_ATTACHED',
+      {
+        attachmentIds,
+        statedAmount: request.statedAmount ?? null,
+      },
+    );
 
     await this.setStatus(requestId, RequestStatus.COMPLETED);
     return this.findOne(tenantId, requestId, {
@@ -618,12 +793,18 @@ export class RequestsService {
   ) {
     const request = await this.prisma.request.findFirst({
       where: { id: requestId, tenantId },
-      select: { id: true, requesterId: true },
+      select: { id: true, requesterId: true, routedRoleId: true },
     });
     if (!request) throw new NotFoundException('Request not found');
     if (
       request.requesterId !== actingUser.userId &&
-      !BROAD_VISIBILITY_ROLES.has(actingUser.role)
+      !BROAD_VISIBILITY_ROLES.has(actingUser.role) &&
+      !(
+        request.routedRoleId &&
+        (await this.getHeldRoleIds(actingUser.userId)).includes(
+          request.routedRoleId,
+        )
+      )
     ) {
       throw new ForbiddenException("You don't have access to this request");
     }
@@ -667,7 +848,9 @@ export class RequestsService {
   }
 
   private async resolveBotToken(tenantId: string): Promise<string | undefined> {
-    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+    });
     return tenant?.slackBotToken ?? this.config.get<string>('slack.botToken');
   }
 

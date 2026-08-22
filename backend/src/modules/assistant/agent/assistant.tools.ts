@@ -77,8 +77,11 @@ export function buildAssistantTools(
       input: {
         intentType: string;
         routeToRoleName?: string;
+        requiresApproval?: boolean;
         statedAmount?: number;
         budgetDepartment?: string;
+        leaveStartDate?: string;
+        leaveEndDate?: string;
       },
       config: RunnableConfig,
     ) => {
@@ -89,6 +92,10 @@ export function buildAssistantTools(
         parsedIntent: input.intentType,
         statedAmount: input.statedAmount,
         budgetDepartment: input.budgetDepartment,
+        routeToRoleName: input.routeToRoleName,
+        requiresApproval: input.requiresApproval,
+        leaveStartDate: input.leaveStartDate,
+        leaveEndDate: input.leaveEndDate,
       });
       const routed = await requests.runPipeline(tenantId, request.id);
 
@@ -124,6 +131,12 @@ export function buildAssistantTools(
           .describe(
             "If this request clearly belongs to one of the company's employee roles listed in the system prompt (e.g. a leave request matching 'Human Resources (HR)'), put that role's exact name here so it gets forwarded to whoever holds it. Omit if none clearly apply — don't guess.",
           ),
+        requiresApproval: z
+          .boolean()
+          .optional()
+          .describe(
+            'Only meaningful alongside routeToRoleName. true if this is a real decision someone holding that role must approve or reject before it can proceed (e.g. a leave request needing HR sign-off, a purchase needing IT approval) — the request stays pending until a role-holder decides it. false if it is purely informational and no approval is expected (e.g. "ask IT about the wifi password", "tell HR my stipend did not arrive") — it just gets logged and forwarded. Omit when routeToRoleName is omitted.',
+          ),
         statedAmount: z
           .number()
           .min(0.01)
@@ -136,6 +149,18 @@ export function buildAssistantTools(
           .optional()
           .describe(
             'If this expense clearly matches one of the BUDGET CATEGORIES listed in the system prompt (e.g. "new PCs" matching "Office accessories", "AC repair" matching "Maintenance"), put that exact category name here so spend is tracked against the right budget. This is about what the money is FOR, not which department the requester belongs to — omit if no category clearly fits, do not guess.',
+          ),
+        leaveStartDate: z
+          .string()
+          .optional()
+          .describe(
+            'For a leave request OR a remote/work-from-home request: the first day off/remote, as an ISO date (YYYY-MM-DD). Resolve relative phrases ("next Monday", "starting tomorrow") using TODAY\'S DATE above. Required before filing either kind of request — ask a clarifying question first if the user did not give enough to work this out (e.g. said "2 days" but not which days).',
+          ),
+        leaveEndDate: z
+          .string()
+          .optional()
+          .describe(
+            'For a leave request OR a remote/work-from-home request: the last day off/remote (inclusive), as an ISO date (YYYY-MM-DD) — same rules as leaveStartDate. For "a 2 day leave starting Monday", that\'s Monday and Tuesday.',
           ),
       }),
     },
@@ -162,7 +187,7 @@ export function buildAssistantTools(
     {
       name: 'get_budget_summary',
       description:
-        "Look up live department budget figures (allocated, spent, reserved pending proof, remaining) for this tenant. Only Finance Approver and System Admin can see real numbers — the tool enforces this itself and returns a plain refusal for anyone else, which you should relay honestly rather than rephrasing as something you decided.",
+        'Look up live department budget figures (allocated, spent, reserved pending proof, remaining) for this tenant. Only Finance Approver and System Admin can see real numbers — the tool enforces this itself and returns a plain refusal for anyone else, which you should relay honestly rather than rephrasing as something you decided.',
       schema: z.object({}),
     },
   );

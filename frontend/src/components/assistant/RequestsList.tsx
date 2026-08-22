@@ -39,7 +39,9 @@ export function RequestsList() {
     if (!requests) return [];
     if (tab === "pending") return requests.filter((r) => r.status.startsWith("PENDING"));
     if (tab === "completed")
-      return requests.filter((r) => ["APPROVED", "COMPLETED", "REJECTED", "CANCELLED"].includes(r.status));
+      return requests.filter((r) =>
+        ["APPROVED", "COMPLETED", "REJECTED", "CANCELLED", "NOTED"].includes(r.status),
+      );
     return requests;
   }, [requests, tab]);
 

@@ -7,7 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
-import { Role } from '@prisma/client';
+import { Role, RequestStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PoliciesService } from '../policies/policies.service';
 import { LlmService } from '../llm/llm.service';
@@ -297,7 +297,7 @@ export class EmployeeRolesService {
       const intentLabel = input.intentType.replace(/_/g, ' ').toLowerCase();
       const text = `New ${intentLabel} from ${requester?.name ?? 'an employee'}: "${input.rawPrompt}" (ref \`${input.requestId}\`)`;
 
-      const recipients = await this.prisma.user.findMany({
+      const roleHolders = await this.prisma.user.findMany({
         where: {
           tenantId,
           isActive: true,
@@ -305,6 +305,23 @@ export class EmployeeRolesService {
           employeeRoles: { some: { employeeRoleId: role.id } },
         },
       });
+      // Anyone holding this role but currently on approved leave is skipped
+      // — falls through to the SYSTEM_ADMIN fallback below exactly like
+      // "nobody holds this role" already does, rather than paging someone
+      // who isn't there to see it. Applies to every role the same way (HR,
+      // IT, or any future one) since this runs before the fallback check
+      // regardless of which role was targeted. The requester themselves is
+      // also excluded even if they hold this role — deciding your own
+      // request is a conflict of interest (RequestsService.decideRoleStage
+      // blocks it server-side too; this just stops them being pinged about
+      // it in the first place).
+      const onLeaveIds = await this.getUsersOnLeave(
+        tenantId,
+        roleHolders.map((u) => u.id),
+      );
+      const recipients = roleHolders.filter(
+        (u) => !onLeaveIds.has(u.id) && u.id !== input.requesterId,
+      );
 
       const target =
         recipients.length > 0
@@ -325,11 +342,15 @@ export class EmployeeRolesService {
       }
 
       const forwardedToAdmin = recipients.length === 0;
+      const forwardReason =
+        roleHolders.length === 0
+          ? `No one currently holds the role "${role.name}"`
+          : `No one holding the role "${role.name}" is available to review this`;
       await this.deliverToAll(
         botToken,
         target,
         forwardedToAdmin
-          ? `:warning: No one currently holds the role "${role.name}" — forwarding this message to you as admin:\n\n${text}`
+          ? `:warning: ${forwardReason} — forwarding this message to you as admin:\n\n${text}`
           : text,
       );
 
@@ -350,6 +371,29 @@ export class EmployeeRolesService {
       );
       return { delivered: false };
     }
+  }
+
+  // Which of these users currently has an approved leave request covering
+  // today — see Request.leaveStartDate/leaveEndDate. Only leave requests
+  // ever populate those columns, so no separate intentType filter is needed.
+  private async getUsersOnLeave(
+    tenantId: string,
+    userIds: string[],
+  ): Promise<Set<string>> {
+    if (userIds.length === 0) return new Set();
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const onLeave = await this.prisma.request.findMany({
+      where: {
+        tenantId,
+        requesterId: { in: userIds },
+        status: RequestStatus.APPROVED,
+        leaveStartDate: { lte: today },
+        leaveEndDate: { gte: today },
+      },
+      select: { requesterId: true },
+    });
+    return new Set(onLeave.map((r) => r.requesterId));
   }
 
   private async resolveBotToken(tenantId: string): Promise<string | undefined> {

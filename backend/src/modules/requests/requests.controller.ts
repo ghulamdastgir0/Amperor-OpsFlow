@@ -95,7 +95,9 @@ export class RequestsController {
   @Roles(Role.FINANCE_APPROVER, Role.SYSTEM_ADMIN)
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
-    FilesInterceptor('files', MAX_PROOF_FILES, { limits: { fileSize: MAX_PROOF_SIZE_BYTES } }),
+    FilesInterceptor('files', MAX_PROOF_FILES, {
+      limits: { fileSize: MAX_PROOF_SIZE_BYTES },
+    }),
   )
   attachProof(
     @CurrentUser() user: AuthenticatedUser,
@@ -124,7 +126,10 @@ export class RequestsController {
       id,
       attachmentId,
     );
-    res.setHeader('Content-Type', attachment.mimeType ?? 'application/octet-stream');
+    res.setHeader(
+      'Content-Type',
+      attachment.mimeType ?? 'application/octet-stream',
+    );
     res.setHeader(
       'Content-Disposition',
       `inline; filename="${encodeURIComponent(attachment.fileName ?? 'proof')}"`,

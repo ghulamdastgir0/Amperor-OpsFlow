@@ -6,10 +6,12 @@ export const REQUEST_STATUS_DISPLAY: Record<RequestStatus, { label: string; tone
   PENDING_POLICY_CHECK: { label: "Checking Policy", tone: "blue" },
   PENDING_MANAGER_APPROVAL: { label: "Awaiting Manager", tone: "amber" },
   PENDING_FINANCE_APPROVAL: { label: "Awaiting Finance", tone: "amber" },
+  PENDING_ROLE_APPROVAL: { label: "Awaiting Approval", tone: "amber" },
   APPROVED: { label: "Approved", tone: "green" },
   REJECTED: { label: "Rejected", tone: "red" },
   ESCALATED: { label: "Escalated", tone: "red" },
   COMPLETED: { label: "Completed", tone: "green" },
+  NOTED: { label: "Logged", tone: "slate" },
   CANCELLED: { label: "Cancelled", tone: "slate" },
 };
 

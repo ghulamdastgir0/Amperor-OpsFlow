@@ -1,5 +1,13 @@
 import { RequestChannel } from '@prisma/client';
-import { IsEnum, IsNumber, IsOptional, IsPositive, IsString } from 'class-validator';
+import {
+  IsBoolean,
+  IsDateString,
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsPositive,
+  IsString,
+} from 'class-validator';
 
 export class CreateRequestDto {
   @IsEnum(RequestChannel)
@@ -22,4 +30,27 @@ export class CreateRequestDto {
   @IsString()
   @IsOptional()
   budgetDepartment?: string;
+
+  // Exact EmployeeRole name this request should route to (e.g. "Human
+  // Resources (HR)") — resolved to Request.routedRoleId at creation time.
+  // See RequestsService.create.
+  @IsString()
+  @IsOptional()
+  routeToRoleName?: string;
+
+  // Whether routeToRoleName means "a role-holder must actually decide this"
+  // (PENDING_ROLE_APPROVAL) vs. "just log/forward it, nothing to approve"
+  // (NOTED). Ignored when routeToRoleName is absent.
+  @IsBoolean()
+  @IsOptional()
+  requiresApproval?: boolean;
+
+  // ISO date strings (YYYY-MM-DD) for a leave request — see Request.leaveStartDate/EndDate.
+  @IsDateString()
+  @IsOptional()
+  leaveStartDate?: string;
+
+  @IsDateString()
+  @IsOptional()
+  leaveEndDate?: string;
 }
