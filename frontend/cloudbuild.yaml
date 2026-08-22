@@ -3,38 +3,9 @@ substitutions:
   _REPO: opsflow
 
 steps:
-  - id: build-backend
-    name: gcr.io/cloud-builders/docker
-    args:
-      - build
-      - -f
-      - backend/Dockerfile
-      - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/backend:$SHORT_SHA
-      - .
-
-  - id: push-backend
-    name: gcr.io/cloud-builders/docker
-    args:
-      - push
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/backend:$SHORT_SHA
-    waitFor: [build-backend]
-
-  - id: deploy-backend
-    name: gcr.io/google.com/cloudsdktool/cloud-sdk
-    entrypoint: gcloud
-    args:
-      - run
-      - deploy
-      - opsflow-backend
-      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/backend:$SHORT_SHA
-      - --region=${_REGION}
-      - --quiet
-    waitFor: [push-backend]
-
-  # Frontend bakes NEXT_PUBLIC_API_URL in at build time, so it needs the
-  # backend's URL (stable across deploys once the service exists) before it
-  # can build.
+  # NEXT_PUBLIC_API_URL is baked in at build time, so this reads the
+  # backend's already-deployed URL (stable across deploys, doesn't require
+  # the backend trigger to have just run) rather than deploying it here.
   - id: get-backend-url
     name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: bash
@@ -42,7 +13,6 @@ steps:
       - -c
       - |
         gcloud run services describe opsflow-backend --region=${_REGION} --format="value(status.url)" > /workspace/backend_url.txt
-    waitFor: [deploy-backend]
 
   - id: build-frontend
     name: gcr.io/cloud-builders/docker
@@ -74,7 +44,6 @@ steps:
     waitFor: [push-frontend]
 
 images:
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/backend:$SHORT_SHA
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/frontend:$SHORT_SHA
 
 options:
