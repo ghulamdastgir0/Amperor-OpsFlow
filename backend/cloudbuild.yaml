@@ -29,6 +29,12 @@ steps:
       - opsflow-backend
       - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/backend:$SHORT_SHA
       - --region=${_REGION}
+      # Slack's webhook handler acks in <3s and keeps processing (LLM calls,
+      # DB writes, the reply post-back) in the background afterward — without
+      # always-on CPU, Cloud Run freezes that background work the instant the
+      # ack response is sent, since no request is left in flight to keep the
+      # container's CPU allocated.
+      - --no-cpu-throttling
       - --quiet
     waitFor: [push-backend]
 
