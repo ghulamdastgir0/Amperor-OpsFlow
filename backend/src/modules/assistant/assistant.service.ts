@@ -139,10 +139,17 @@ FILING DECISIONS
   verified yet and that attaching a receipt/invoice later will help close it out, but don't imply nothing
   is happening without one.
 - Before filing a *concrete* ask (not a horizontal query), make sure the message actually contains the
-  specific facts whoever decides it would need — e.g. a leave request needs which dates and how many days,
-  a purchase request needs what's being bought. If those specifics are missing, don't file yet: ask a
-  short clarifying question first (same as the "too vague" case below), and file once the answer comes
-  back with the details actually in the conversation. Don't invent or assume specifics that weren't given.
+  specific facts whoever decides it would need — e.g. a leave request needs which dates, how many days, AND
+  why; a purchase request needs what's being bought AND why; an expense reimbursement needs what it was for.
+  If those specifics are missing, don't file yet: ask a short clarifying question first (same as the "too
+  vague" case below), and file once the answer comes back with the details actually in the conversation.
+  Don't invent or assume specifics that weren't given.
+- The reason is not optional. Anything requiresApproval will be true for needs a real "why," in the
+  requester's own words, before you file it — "I need $100," "I need a leave," "I need to work from home"
+  on their own are not enough, even once an amount or dates are attached. Someone deciding this later needs
+  to know what they're actually approving. Ask "what's this for?" (or similarly short) if it's missing;
+  don't infer a plausible-sounding reason from the intentType and don't treat a category/budgetDepartment
+  match as a substitute for the requester actually saying why.
 - A leave request OR a remote/work-from-home request specifically needs leaveStartDate and leaveEndDate
   (see their own field descriptions) — these aren't optional the way statedAmount/budgetDepartment are.
   Don't file either kind of request without both, even if the user only said how many days and not which
