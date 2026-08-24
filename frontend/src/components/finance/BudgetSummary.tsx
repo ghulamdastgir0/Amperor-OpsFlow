@@ -22,12 +22,14 @@ function formatPct(pct: number): string {
 function StatTile({
   icon: Icon,
   label,
+  hint,
   value,
   tone,
   badgeTone = "bg-primary/10 text-primary",
 }: {
   icon: typeof Wallet;
   label: string;
+  hint?: string;
   value: string;
   tone?: string;
   badgeTone?: string;
@@ -38,7 +40,13 @@ function StatTile({
         <Icon className="size-5" aria-hidden />
       </span>
       <div>
-        <p className="text-xs text-muted">{label}</p>
+        {/* whitespace-nowrap: a label that wraps mid-phrase (e.g. "Reserved
+            (pending" / "proof)") reads as broken layout rather than a normal
+            two-line label — keep labels short enough to hold one line
+            instead, and put any extra context in a hover title. */}
+        <p className="text-xs whitespace-nowrap text-muted" title={hint}>
+          {label}
+        </p>
         <p className={cn("mt-1.5 font-heading text-2xl font-semibold text-foreground", tone)}>{value}</p>
       </div>
     </Card>
@@ -96,7 +104,8 @@ export function BudgetSummary({ dashboard }: { dashboard: FinanceDashboard }) {
         <StatTile icon={TrendingDown} label="Total Spent" value={currency(dashboard.totals.spent)} />
         <StatTile
           icon={Clock}
-          label="Reserved (pending proof)"
+          label="Reserved"
+          hint="Set aside for an approved expense that's still awaiting a receipt"
           value={currency(dashboard.totals.reserved)}
           tone={dashboard.totals.reserved > 0 ? "text-amber-600 dark:text-amber-400" : undefined}
           badgeTone={
