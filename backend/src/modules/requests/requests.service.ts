@@ -317,8 +317,15 @@ export class RequestsService {
         return this.setStatus(requestId, RequestStatus.NOTED);
       }
 
-      await this.addStep(requestId, 'Completed', ExecutionStepStatus.COMPLETED);
-      return this.setStatus(requestId, RequestStatus.COMPLETED);
+      // No role matched at all (routeToRoleName omitted or didn't match any
+      // configured EmployeeRole) — escalate to a system admin rather than
+      // silently auto-completing with nobody ever having looked at it.
+      await this.addStep(
+        requestId,
+        'Escalated — No Matching Role',
+        ExecutionStepStatus.IN_PROGRESS,
+      );
+      return this.setStatus(requestId, RequestStatus.ESCALATED);
     }
 
     await this.addStep(
@@ -604,10 +611,11 @@ export class RequestsService {
       totalAmount,
       false,
     );
-    await this.completeStep(
-      requestId,
-      'Escalated — No Finance Delegate Available',
-    );
+    // Reached via two different escalation reasons ("no finance delegate
+    // covers this amount" vs. "no matching role" — see runPipeline), each
+    // with its own step name, so complete whichever one is actually still
+    // in progress rather than hardcoding either name.
+    await this.completeLatestInProgressStep(requestId);
     await this.audit(
       tenantId,
       actingUser.userId,
@@ -957,6 +965,18 @@ export class RequestsService {
   private async completeStep(requestId: string, stepName: string) {
     const step = await this.prisma.executionStep.findFirst({
       where: { requestId, stepName },
+      orderBy: { sequenceOrder: 'desc' },
+    });
+    if (!step) return;
+    return this.prisma.executionStep.update({
+      where: { id: step.id },
+      data: { status: ExecutionStepStatus.COMPLETED, completedAt: new Date() },
+    });
+  }
+
+  private async completeLatestInProgressStep(requestId: string) {
+    const step = await this.prisma.executionStep.findFirst({
+      where: { requestId, status: ExecutionStepStatus.IN_PROGRESS },
       orderBy: { sequenceOrder: 'desc' },
     });
     if (!step) return;
