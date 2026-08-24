@@ -87,6 +87,20 @@ export class SlackService {
       this.logger.warn(
         `Slack user ${event.user} is not linked to a user in tenant ${tenant.id}`,
       );
+      // Being in the Slack workspace isn't enough on its own — being in the
+      // workspace AND completing "Continue with Slack" once is what actually
+      // provisions the User row (SlackOAuthService.completeSlackLogin). Without
+      // this, a not-yet-registered person's very first message just vanished
+      // with nothing but a server-side log to show for it.
+      if (event.channel) {
+        const loginUrl = `${this.config.get<string>('frontendUrl')}/login`;
+        await this.postMessage(
+          botToken,
+          event.channel,
+          `I don't have an OpsFlow account linked to you yet. Sign in at ${loginUrl} with "Continue with Slack" first, then message me again.`,
+          event.thread_ts ?? event.ts,
+        );
+      }
       return;
     }
 
@@ -138,7 +152,12 @@ export class SlackService {
     // with no interim message Slack shows nothing at all until it's done,
     // which reads as broken/stuck rather than just slow.
     if (event.channel) {
-      await this.postMessage(botToken, event.channel, 'On it — give me a moment.', threadTs);
+      await this.postMessage(
+        botToken,
+        event.channel,
+        'On it — give me a moment.',
+        threadTs,
+      );
     }
     const result = await this.assistant.sendMessage(
       tenant.id,
