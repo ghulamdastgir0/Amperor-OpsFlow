@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { AlertCircle, Megaphone, Pencil, Plus, Tag, UserPlus, Wand2, X } from "lucide-react";
+import { AlertCircle, ChevronRight, Megaphone, Pencil, Plus, Tag, UserPlus, Wand2, X } from "lucide-react";
 import { employeeRolesApi, usersApi } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import type { EmployeeRole, Role, User } from "@/lib/types";
@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input, Select, Textarea } from "@/components/ui/Field";
+import { Modal } from "@/components/ui/Modal";
 import { Avatar } from "@/components/ui/Avatar";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonRows } from "@/components/ui/Skeleton";
@@ -50,12 +51,25 @@ function RoleRow({
   onDeleted: (id: string) => void;
 }) {
   const toast = useToast();
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState(role.name);
   const [description, setDescription] = useState(role.description ?? "");
   const [isSaving, setIsSaving] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  function openDetail() {
+    setName(role.name);
+    setDescription(role.description ?? "");
+    setIsEditing(false);
+    setIsDetailOpen(true);
+  }
+
+  function closeDetail() {
+    setIsDetailOpen(false);
+    setIsEditing(false);
+  }
 
   function startEdit() {
     setName(role.name);
@@ -84,68 +98,76 @@ function RoleRow({
       await employeeRolesApi.deleteRole(role.id);
       onDeleted(role.id);
       toast.success("Role removed.");
+      setPendingDelete(false);
+      closeDetail();
     } catch {
       toast.error("Could not remove this role.");
     } finally {
       setIsDeleting(false);
-      setPendingDelete(false);
     }
   }
 
-  if (isEditing) {
-    return (
-      <li className="py-4">
-        <form onSubmit={handleSave} className="flex flex-col gap-3">
-          <Input label="Role name" value={name} onChange={(e) => setName(e.target.value)} required />
-          <Textarea
-            label="Description"
-            hint="Read by the assistant to decide which role a request should route to"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={2}
-            required
-          />
-          <div className="flex gap-2">
-            <Button type="submit" size="sm" isLoading={isSaving}>
-              Save
-            </Button>
-            <Button type="button" size="sm" variant="outline" onClick={() => setIsEditing(false)} disabled={isSaving}>
-              Cancel
-            </Button>
-          </div>
-        </form>
-      </li>
-    );
-  }
-
   return (
-    <li className="flex flex-col gap-2 py-4 sm:flex-row sm:items-start sm:justify-between">
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium text-foreground">{role.name}</span>
-          <span className="text-xs text-muted">
+    <li>
+      <button
+        type="button"
+        onClick={openDetail}
+        className="group flex w-full items-center justify-between gap-3 py-4 text-left"
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate font-medium text-foreground group-hover:text-primary">{role.name}</span>
+          <span className="shrink-0 text-xs text-muted">
             {role.memberCount} member{role.memberCount === 1 ? "" : "s"}
           </span>
         </div>
-        <p className="mt-1 text-sm text-muted">{role.description || "No description yet."}</p>
-      </div>
-      <div className="flex shrink-0 items-center gap-3">
-        <button
-          type="button"
-          onClick={startEdit}
-          className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-        >
-          <Pencil className="size-3" aria-hidden />
-          Edit
-        </button>
-        <button
-          type="button"
-          onClick={() => setPendingDelete(true)}
-          className="text-xs font-medium text-red-500 hover:text-red-400"
-        >
-          Remove
-        </button>
-      </div>
+        <ChevronRight className="size-4 shrink-0 text-muted group-hover:text-primary" aria-hidden />
+      </button>
+
+      <Modal open={isDetailOpen} title={isEditing ? "Edit role" : role.name} onClose={closeDetail}>
+        {isEditing ? (
+          <form onSubmit={handleSave} className="flex flex-col gap-3">
+            <Input label="Role name" value={name} onChange={(e) => setName(e.target.value)} required />
+            <Textarea
+              label="Description"
+              hint="Read by the assistant to decide which role a request should route to"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              required
+            />
+            <div className="flex justify-end gap-2">
+              <Button type="button" size="sm" variant="outline" onClick={() => setIsEditing(false)} disabled={isSaving}>
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" isLoading={isSaving}>
+                Save
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <div>
+              <p className="text-xs text-muted">
+                {role.memberCount} member{role.memberCount === 1 ? "" : "s"}
+              </p>
+              <p className="mt-2 text-sm text-foreground">{role.description || "No description yet."}</p>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setPendingDelete(true)}
+                className="text-xs font-medium text-red-500 hover:text-red-400"
+              >
+                Remove
+              </button>
+              <Button type="button" size="sm" onClick={startEdit}>
+                <Pencil className="size-3" aria-hidden />
+                Edit
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <ConfirmDialog
         open={pendingDelete}
