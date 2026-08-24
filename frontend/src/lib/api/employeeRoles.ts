@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import type { ApiEnvelope, EmployeeRole, RoleBroadcast } from '../types';
+import type { ApiEnvelope, EmployeeRole, Role, RoleBroadcast } from '../types';
 
 export async function listRoles() {
   const { data } = await apiClient.get<ApiEnvelope<EmployeeRole[]>>('/employee-roles');
@@ -56,7 +56,8 @@ export async function listBroadcasts() {
 }
 
 export interface SendBroadcastPayload {
-  employeeRoleIds: string[];
+  employeeRoleIds?: string[];
+  roles?: Role[];
   message: string;
 }
 

@@ -675,13 +675,16 @@ function EmployeeAssignments({
 
 function BroadcastComposer({
   roles,
+  users,
   onSent,
 }: {
   roles: EmployeeRole[];
+  users: User[];
   onSent: () => void;
 }) {
   const toast = useToast();
   const [selectedRoleIds, setSelectedRoleIds] = useState<Set<string>>(new Set());
+  const [selectedFixedRoles, setSelectedFixedRoles] = useState<Set<Role>>(new Set());
   const [message, setMessage] = useState("");
   const [isSending, setIsSending] = useState(false);
 
@@ -694,31 +697,42 @@ function BroadcastComposer({
     });
   }
 
+  function toggleFixedRole(role: Role) {
+    setSelectedFixedRoles((prev) => {
+      const next = new Set(prev);
+      if (next.has(role)) next.delete(role);
+      else next.add(role);
+      return next;
+    });
+  }
+
   async function handleSend(event: FormEvent) {
     event.preventDefault();
-    if (selectedRoleIds.size === 0) {
+    if (selectedRoleIds.size === 0 && selectedFixedRoles.size === 0) {
       toast.error("Pick at least one role to send to.");
       return;
     }
     setIsSending(true);
     try {
       const broadcast = await employeeRolesApi.sendBroadcast({
-        employeeRoleIds: Array.from(selectedRoleIds),
+        employeeRoleIds: selectedRoleIds.size > 0 ? Array.from(selectedRoleIds) : undefined,
+        roles: selectedFixedRoles.size > 0 ? Array.from(selectedFixedRoles) : undefined,
         message,
       });
       onSent();
       setMessage("");
       setSelectedRoleIds(new Set());
+      setSelectedFixedRoles(new Set());
       toast.success(
         broadcast.forwardedToAdmin
-          ? `No one currently holds that role — forwarded to ${broadcast.recipientCount} admin(s) instead.`
-          : `Sent to ${broadcast.recipientCount} employee(s).`,
+          ? `No one currently matches that — forwarded to ${broadcast.recipientCount} admin(s) instead.`
+          : `Sent to ${broadcast.recipientCount} recipient(s).`,
       );
     } catch (err) {
       const status = (err as { response?: { status?: number } }).response?.status;
       toast.error(
         status === 400
-          ? "No one holds this role and no admin has Slack linked — nothing could be delivered."
+          ? "No one matches this selection and no admin has Slack linked — nothing could be delivered."
           : "Could not send this message.",
       );
     } finally {
@@ -730,33 +744,80 @@ function BroadcastComposer({
     <Card>
       <h2 className="font-heading mb-1 text-sm font-semibold text-foreground">Send a Message by Role</h2>
       <p className="mb-4 text-xs text-muted">
-        Delivered as a Slack DM to every active employee holding any of the roles you pick. If no one reachable
-        holds them, it&apos;s forwarded to a tenant admin instead so it never just disappears.
+        Delivered as a Slack DM to every active employee matching any of the roles you pick — a custom role, an
+        access role, or both. If no one reachable matches, it&apos;s forwarded to a tenant admin instead so it
+        never just disappears.
       </p>
 
       <form onSubmit={handleSend} className="flex flex-col gap-4">
-        {roles.length === 0 ? (
-          <p className="text-sm text-muted">Add roles to the catalog above before sending a message.</p>
-        ) : (
+        {roles.length > 0 && (
+          <div>
+            <p className="mb-1.5 text-xs font-medium text-muted">Custom roles</p>
+            <div className="flex flex-wrap gap-2">
+              {roles.map((role) => {
+                const isSelected = selectedRoleIds.has(role.id);
+                const isUnassigned = role.memberCount === 0;
+                return (
+                  <button
+                    key={role.id}
+                    type="button"
+                    onClick={() => !isUnassigned && toggleRole(role.id)}
+                    disabled={isUnassigned}
+                    title={isUnassigned ? "No one currently holds this role — assign it to someone first." : undefined}
+                    className={
+                      isUnassigned
+                        ? "cursor-not-allowed rounded-full border border-dashed border-border bg-surface px-3 py-1.5 text-xs font-medium text-muted opacity-50"
+                        : isSelected
+                          ? "rounded-full border border-primary bg-indigo-50 px-3 py-1.5 text-xs font-medium text-primary dark:bg-indigo-500/10"
+                          : "rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-medium text-muted hover:border-primary hover:text-primary"
+                    }
+                  >
+                    {role.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div>
+          <p className="mb-1.5 text-xs font-medium text-muted">Access roles</p>
           <div className="flex flex-wrap gap-2">
-            {roles.map((role) => {
-              const isSelected = selectedRoleIds.has(role.id);
+            {ROLE_OPTIONS.map((option) => {
+              const isSelected = selectedFixedRoles.has(option.value);
+              const isUnassigned = !users.some(
+                (u) => u.role === option.value && u.isActive && u.slackUserId,
+              );
               return (
                 <button
-                  key={role.id}
+                  key={option.value}
                   type="button"
-                  onClick={() => toggleRole(role.id)}
+                  onClick={() => !isUnassigned && toggleFixedRole(option.value)}
+                  disabled={isUnassigned}
+                  title={
+                    isUnassigned
+                      ? "No active employee with a linked Slack account currently holds this access role."
+                      : undefined
+                  }
                   className={
-                    isSelected
-                      ? "rounded-full border border-primary bg-indigo-50 px-3 py-1.5 text-xs font-medium text-primary dark:bg-indigo-500/10"
-                      : "rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-medium text-muted hover:border-primary hover:text-primary"
+                    isUnassigned
+                      ? "cursor-not-allowed rounded-full border border-dashed border-border bg-surface px-3 py-1.5 text-xs font-medium text-muted opacity-50"
+                      : isSelected
+                        ? "rounded-full border border-primary bg-indigo-50 px-3 py-1.5 text-xs font-medium text-primary dark:bg-indigo-500/10"
+                        : "rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-medium text-muted hover:border-primary hover:text-primary"
                   }
                 >
-                  {role.name}
+                  {option.label}
                 </button>
               );
             })}
           </div>
+        </div>
+
+        {roles.length === 0 && (
+          <p className="text-sm text-muted">
+            Add a custom role in the catalog above to also be able to target it here.
+          </p>
         )}
 
         <Textarea
@@ -898,6 +959,7 @@ export default function EmployeeRolesPage() {
 
         <BroadcastComposer
           roles={roles}
+          users={users}
           onSent={() => employeeRolesApi.listRoles().then(setRoles).catch(() => {})}
         />
       </div>

@@ -29,6 +29,16 @@ const BROADCAST_INCLUDE = {
   targets: { include: { employeeRole: { select: { id: true, name: true } } } },
 } as const;
 
+// Display labels for the fixed platform Role enum, used only for the
+// forwarded-to-admin message text (mirrors the frontend's ROLE_LABELS).
+const FIXED_ROLE_LABELS: Record<Role, string> = {
+  SYSTEM_ADMIN: 'System Admin',
+  DEPARTMENT_MANAGER: 'Department Manager',
+  TEAM_LEAD: 'Team Lead',
+  FINANCE_APPROVER: 'Finance Approver',
+  EMPLOYEE: 'Employee',
+};
+
 @Injectable()
 export class EmployeeRolesService {
   private readonly logger = new Logger(EmployeeRolesService.name);
@@ -202,10 +212,18 @@ export class EmployeeRolesService {
   }
 
   async broadcast(tenantId: string, senderId: string, dto: SendBroadcastDto) {
-    const roles = await this.prisma.employeeRole.findMany({
-      where: { id: { in: dto.employeeRoleIds }, tenantId },
-    });
-    if (roles.length !== dto.employeeRoleIds.length) {
+    const employeeRoleIds = dto.employeeRoleIds ?? [];
+    const fixedRoles = dto.roles ?? [];
+    if (employeeRoleIds.length === 0 && fixedRoles.length === 0) {
+      throw new BadRequestException('Pick at least one role to send to.');
+    }
+
+    const employeeRoles = employeeRoleIds.length
+      ? await this.prisma.employeeRole.findMany({
+          where: { id: { in: employeeRoleIds }, tenantId },
+        })
+      : [];
+    if (employeeRoles.length !== employeeRoleIds.length) {
       throw new BadRequestException('One or more roles were not found');
     }
 
@@ -216,16 +234,28 @@ export class EmployeeRolesService {
       );
     }
 
+    // Two independent targeting axes, unioned: the tenant's custom
+    // EmployeeRole catalog (HR, IT Support, ...) and the fixed platform Role
+    // enum (Employee, Finance Approver, System Admin, ...) — a user matching
+    // either is a recipient.
     const recipients = await this.prisma.user.findMany({
       where: {
         tenantId,
         isActive: true,
         slackUserId: { not: null },
-        employeeRoles: {
-          some: { employeeRoleId: { in: dto.employeeRoleIds } },
-        },
+        OR: [
+          ...(employeeRoleIds.length
+            ? [{ employeeRoles: { some: { employeeRoleId: { in: employeeRoleIds } } } }]
+            : []),
+          ...(fixedRoles.length ? [{ role: { in: fixedRoles } }] : []),
+        ],
       },
     });
+
+    const targetLabel = [
+      ...employeeRoles.map((r) => r.name),
+      ...fixedRoles.map((r) => FIXED_ROLE_LABELS[r]),
+    ].join(', ');
 
     if (recipients.length > 0) {
       await this.deliverToAll(botToken, recipients, dto.message);
@@ -236,8 +266,13 @@ export class EmployeeRolesService {
           message: dto.message,
           recipientCount: recipients.length,
           forwardedToAdmin: false,
+          // Only the EmployeeRole side of the target selection is
+          // representable here — RoleBroadcastTarget FKs to EmployeeRole,
+          // not the fixed Role enum (no UI currently surfaces this history,
+          // so the fixed-role portion of the target is only reflected in
+          // the delivered message/label, not persisted structurally).
           targets: {
-            create: dto.employeeRoleIds.map((employeeRoleId) => ({
+            create: employeeRoleIds.map((employeeRoleId) => ({
               employeeRoleId,
             })),
           },
@@ -247,7 +282,7 @@ export class EmployeeRolesService {
       return { ...created, deliveredToAdmin: false };
     }
 
-    // Nobody reachable holds any of the target roles — forward to the
+    // Nobody reachable matches any of the target roles — forward to the
     // tenant's admins instead of letting the message disappear silently.
     const admins = await this.prisma.user.findMany({
       where: {
@@ -259,12 +294,11 @@ export class EmployeeRolesService {
     });
     if (admins.length === 0) {
       throw new BadRequestException(
-        'No employee holds the selected role(s), and no admin has a linked Slack account to forward it to.',
+        'No one matches the selected role(s), and no admin has a linked Slack account to forward it to.',
       );
     }
 
-    const roleNames = roles.map((r) => r.name).join(', ');
-    const forwardedText = `:warning: No one currently holds the role(s) "${roleNames}" — forwarding this message to you as admin:\n\n${dto.message}`;
+    const forwardedText = `:warning: No one currently matches the role(s) "${targetLabel}" — forwarding this message to you as admin:\n\n${dto.message}`;
     await this.deliverToAll(botToken, admins, forwardedText);
 
     const created = await this.prisma.roleBroadcast.create({
@@ -275,7 +309,7 @@ export class EmployeeRolesService {
         recipientCount: admins.length,
         forwardedToAdmin: true,
         targets: {
-          create: dto.employeeRoleIds.map((employeeRoleId) => ({
+          create: employeeRoleIds.map((employeeRoleId) => ({
             employeeRoleId,
           })),
         },
