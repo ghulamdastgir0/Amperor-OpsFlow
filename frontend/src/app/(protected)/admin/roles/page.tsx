@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { AlertCircle, ChevronRight, Megaphone, Pencil, Plus, Tag, UserPlus, Wand2, X } from "lucide-react";
+import { AlertCircle, Megaphone, Pencil, Plus, Tag, UserPlus, Wand2, X } from "lucide-react";
 import { employeeRolesApi, usersApi } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import type { EmployeeRole, Role, User } from "@/lib/types";
@@ -108,19 +108,16 @@ function RoleRow({
   }
 
   return (
-    <li>
+    <>
       <button
         type="button"
         onClick={openDetail}
-        className="group flex w-full items-center justify-between gap-3 py-4 text-left"
+        className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-medium text-foreground hover:border-primary hover:text-primary"
       >
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate font-medium text-foreground group-hover:text-primary">{role.name}</span>
-          <span className="shrink-0 text-xs text-muted">
-            {role.memberCount} member{role.memberCount === 1 ? "" : "s"}
-          </span>
-        </div>
-        <ChevronRight className="size-4 shrink-0 text-muted group-hover:text-primary" aria-hidden />
+        {role.name}
+        <span className="text-muted">
+          ({role.memberCount})
+        </span>
       </button>
 
       <Modal open={isDetailOpen} title={isEditing ? "Edit role" : role.name} onClose={closeDetail}>
@@ -179,7 +176,7 @@ function RoleRow({
         onConfirm={handleDelete}
         onCancel={() => setPendingDelete(false)}
       />
-    </li>
+    </>
   );
 }
 
@@ -243,11 +240,11 @@ function RoleCatalog({
       {roles.length === 0 ? (
         <EmptyState icon={Tag} title="No roles yet" description="Add one below." />
       ) : (
-        <ul className="mb-4 flex flex-col divide-y divide-border rounded-xl border border-border px-4">
+        <div className="mb-4 flex flex-wrap gap-2">
           {roles.map((role) => (
             <RoleRow key={role.id} role={role} onUpdated={onUpdated} onDeleted={onDeleted} />
           ))}
-        </ul>
+        </div>
       )}
 
       <form onSubmit={handleCreate} className="flex flex-col gap-4">
