@@ -2,13 +2,13 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { KeyRound, MessageSquare, Pencil, User as UserIcon } from "lucide-react";
-import { usersApi } from "@/lib/api";
+import { budgetsApi, usersApi } from "@/lib/api";
 import type { User } from "@/lib/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Field";
+import { Input, Select } from "@/components/ui/Field";
 import { Avatar } from "@/components/ui/Avatar";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Modal } from "@/components/ui/Modal";
@@ -29,8 +29,27 @@ function DetailsForm({ profile, onSaved }: { profile: User; onSaved: (user: User
   const [name, setName] = useState(profile.name);
   const [department, setDepartment] = useState(profile.department ?? "");
   const [isSaving, setIsSaving] = useState(false);
+  // Backs the Department field with the tenant's actual Budget.departmentScope
+  // list instead of free text — otherwise a typo here ("Engeneering" vs
+  // "Engineering") silently breaks Finance Delegation matching, which keys
+  // off this value matching a budget scope exactly.
+  const [departmentOptions, setDepartmentOptions] = useState<string[]>([]);
+
+  useEffect(() => {
+    budgetsApi
+      .listDepartmentNames()
+      .then(setDepartmentOptions)
+      .catch(() => setDepartmentOptions([]));
+  }, []);
 
   const dirty = name !== profile.name || department !== (profile.department ?? "");
+  // Keeps whatever's already saved selectable even if it no longer matches
+  // any configured budget department, so opening this form never silently
+  // blanks out an existing value.
+  const availableDepartments =
+    department && !departmentOptions.includes(department)
+      ? [department, ...departmentOptions]
+      : departmentOptions;
 
   function openModal() {
     // Reset to the current saved values each time it's opened, so a
@@ -93,12 +112,19 @@ function DetailsForm({ profile, onSaved }: { profile: User; onSaved: (user: User
         <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
           <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
           <Input label="Email" value={profile.email} disabled hint="Contact a system admin to change your email." />
-          <Input
+          <Select
             label="Department"
-            placeholder="e.g. Engineering"
+            hint="Matches Finance's budget categories, so approvals route correctly."
             value={department}
             onChange={(e) => setDepartment(e.target.value)}
-          />
+          >
+            <option value="">No department</option>
+            {availableDepartments.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </Select>
           <Input label="Access role" value={ROLE_LABELS[profile.role]} disabled hint="Only a system admin can change this." />
           <div className="flex justify-end gap-2 sm:col-span-2">
             <Button type="button" variant="outline" onClick={() => setIsOpen(false)} disabled={isSaving}>

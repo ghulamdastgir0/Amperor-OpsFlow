@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { AlertCircle, Megaphone, Plus, Tag, UserPlus, Wand2, X } from "lucide-react";
+import { AlertCircle, Megaphone, Pencil, Plus, Tag, UserPlus, Wand2, X } from "lucide-react";
 import { employeeRolesApi, usersApi } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import type { EmployeeRole, Role, User } from "@/lib/types";
@@ -16,10 +16,13 @@ import { SkeletonRows } from "@/components/ui/Skeleton";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 
-// Team Lead / Department Manager exist as valid Role enum values (the
-// request-approval chain and Finance access still accept them as a
-// fallback), but they're not offered here since nobody in practice is
-// assigned them — System Admin already covers that approval step.
+// Team Lead exists as a valid Role enum value (the request-approval chain
+// and Finance access still accept it as a fallback), but it's not offered
+// here since nobody in practice is assigned it — System Admin already covers
+// that approval step. Department Manager IS offered: it's the actual
+// approver for the manager-approval stage on department-scoped requests
+// (see RequestsService.MANAGER_ROLES), so an admin needs to be able to
+// assign it to someone.
 // Backend validation errors (class-validator) come back as a string[] message;
 // manually-thrown ones (e.g. duplicate name) come back as a plain string.
 // Surfacing the real message beats guessing a cause from the status code alone.
@@ -32,17 +35,141 @@ function extractErrorMessage(err: unknown): string | undefined {
 
 const ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: "EMPLOYEE", label: "Employee" },
+  { value: "DEPARTMENT_MANAGER", label: "Department Manager" },
   { value: "FINANCE_APPROVER", label: "Finance Approver" },
   { value: "SYSTEM_ADMIN", label: "System Admin" },
 ];
 
+function RoleRow({
+  role,
+  onUpdated,
+  onDeleted,
+}: {
+  role: EmployeeRole;
+  onUpdated: (role: EmployeeRole) => void;
+  onDeleted: (id: string) => void;
+}) {
+  const toast = useToast();
+  const [isEditing, setIsEditing] = useState(false);
+  const [name, setName] = useState(role.name);
+  const [description, setDescription] = useState(role.description ?? "");
+  const [isSaving, setIsSaving] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  function startEdit() {
+    setName(role.name);
+    setDescription(role.description ?? "");
+    setIsEditing(true);
+  }
+
+  async function handleSave(event: FormEvent) {
+    event.preventDefault();
+    setIsSaving(true);
+    try {
+      const updated = await employeeRolesApi.updateRole(role.id, { name, description });
+      onUpdated(updated);
+      setIsEditing(false);
+      toast.success(`Role "${updated.name}" updated.`);
+    } catch (err) {
+      toast.error(extractErrorMessage(err) ?? "Could not update this role.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    setIsDeleting(true);
+    try {
+      await employeeRolesApi.deleteRole(role.id);
+      onDeleted(role.id);
+      toast.success("Role removed.");
+    } catch {
+      toast.error("Could not remove this role.");
+    } finally {
+      setIsDeleting(false);
+      setPendingDelete(false);
+    }
+  }
+
+  if (isEditing) {
+    return (
+      <li className="py-4">
+        <form onSubmit={handleSave} className="flex flex-col gap-3">
+          <Input label="Role name" value={name} onChange={(e) => setName(e.target.value)} required />
+          <Textarea
+            label="Description"
+            hint="Read by the assistant to decide which role a request should route to"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={2}
+            required
+          />
+          <div className="flex gap-2">
+            <Button type="submit" size="sm" isLoading={isSaving}>
+              Save
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => setIsEditing(false)} disabled={isSaving}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      </li>
+    );
+  }
+
+  return (
+    <li className="flex flex-col gap-2 py-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-medium text-foreground">{role.name}</span>
+          <span className="text-xs text-muted">
+            {role.memberCount} member{role.memberCount === 1 ? "" : "s"}
+          </span>
+        </div>
+        <p className="mt-1 text-sm text-muted">{role.description || "No description yet."}</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-3">
+        <button
+          type="button"
+          onClick={startEdit}
+          className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+        >
+          <Pencil className="size-3" aria-hidden />
+          Edit
+        </button>
+        <button
+          type="button"
+          onClick={() => setPendingDelete(true)}
+          className="text-xs font-medium text-red-500 hover:text-red-400"
+        >
+          Remove
+        </button>
+      </div>
+
+      <ConfirmDialog
+        open={pendingDelete}
+        title={`Remove "${role.name}"?`}
+        description="Employees tagged with this role keep their other tags — this only removes the role from the catalog and future routing."
+        confirmLabel="Remove role"
+        danger
+        isLoading={isDeleting}
+        onConfirm={handleDelete}
+        onCancel={() => setPendingDelete(false)}
+      />
+    </li>
+  );
+}
+
 function RoleCatalog({
   roles,
   onCreated,
+  onUpdated,
   onDeleted,
 }: {
   roles: EmployeeRole[];
   onCreated: (role: EmployeeRole) => void;
+  onUpdated: (role: EmployeeRole) => void;
   onDeleted: (id: string) => void;
 }) {
   const toast = useToast();
@@ -50,7 +177,6 @@ function RoleCatalog({
   const [description, setDescription] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [isSuggesting, setIsSuggesting] = useState(false);
-  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   async function handleCreate(event: FormEvent) {
     event.preventDefault();
@@ -88,19 +214,6 @@ function RoleCatalog({
     }
   }
 
-  async function handleDelete(id: string) {
-    setPendingDeleteId(id);
-    try {
-      await employeeRolesApi.deleteRole(id);
-      onDeleted(id);
-      toast.success("Role removed.");
-    } catch {
-      toast.error("Could not remove this role.");
-    } finally {
-      setPendingDeleteId(null);
-    }
-  }
-
   return (
     <Card>
       <h2 className="font-heading mb-4 text-sm font-semibold text-foreground">Roles</h2>
@@ -108,26 +221,11 @@ function RoleCatalog({
       {roles.length === 0 ? (
         <EmptyState icon={Tag} title="No roles yet" description="Add one below." />
       ) : (
-        <div className="mb-4 flex flex-wrap gap-2">
+        <ul className="mb-4 flex flex-col divide-y divide-border rounded-xl border border-border px-4">
           {roles.map((role) => (
-            <span
-              key={role.id}
-              title={role.description ?? undefined}
-              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-slate-50 py-1 pl-3 pr-1.5 text-xs font-medium text-foreground dark:bg-white/5"
-            >
-              {role.name}
-              <span className="text-muted">({role.memberCount})</span>
-              <button
-                type="button"
-                onClick={() => handleDelete(role.id)}
-                disabled={pendingDeleteId === role.id}
-                className="rounded-full p-0.5 text-muted hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-500/10"
-              >
-                <X className="size-3" aria-hidden />
-              </button>
-            </span>
+            <RoleRow key={role.id} role={role} onUpdated={onUpdated} onDeleted={onDeleted} />
           ))}
-        </div>
+        </ul>
       )}
 
       <form onSubmit={handleCreate} className="flex flex-col gap-4">
@@ -325,6 +423,7 @@ function EmployeeAssignments({
   onUserCreated,
   onUserRolesUpdated,
   onUserRoleChanged,
+  onUserDepartmentChanged,
   onUserBlockChanged,
   onUserRemoved,
 }: {
@@ -333,6 +432,7 @@ function EmployeeAssignments({
   onUserCreated: (user: User) => void;
   onUserRolesUpdated: (userId: string, roles: EmployeeRole[]) => void;
   onUserRoleChanged: (userId: string, role: Role) => void;
+  onUserDepartmentChanged: (userId: string, department: string | null) => void;
   onUserBlockChanged: (user: User) => void;
   onUserRemoved: (userId: string) => void;
 }) {
@@ -341,6 +441,7 @@ function EmployeeAssignments({
   const [pendingRoleChange, setPendingRoleChange] = useState<{ user: User; role: Role } | null>(null);
   const [isChangingRole, setIsChangingRole] = useState(false);
   const [pendingTagChangeUserId, setPendingTagChangeUserId] = useState<string | null>(null);
+  const [pendingDepartmentUserId, setPendingDepartmentUserId] = useState<string | null>(null);
   const [pendingBlockToggle, setPendingBlockToggle] = useState<User | null>(null);
   const [isTogglingBlock, setIsTogglingBlock] = useState(false);
   const [pendingRemove, setPendingRemove] = useState<User | null>(null);
@@ -368,6 +469,20 @@ function EmployeeAssignments({
       return;
     }
     applyRoleChange(user, role);
+  }
+
+  async function applyDepartmentChange(user: User, department: string) {
+    const trimmed = department.trim();
+    if (trimmed === (user.department ?? "")) return;
+    setPendingDepartmentUserId(user.id);
+    try {
+      const updated = await usersApi.updateUserDepartment(user.id, trimmed);
+      onUserDepartmentChanged(user.id, updated.department ?? null);
+    } catch {
+      toast.error("Could not update this employee's department.");
+    } finally {
+      setPendingDepartmentUserId(null);
+    }
   }
 
   async function changeTags(user: User, nextRoleIds: string[]) {
@@ -458,6 +573,20 @@ function EmployeeAssignments({
                     </option>
                   ))}
                 </select>
+
+                <input
+                  key={u.id + (u.department ?? "")}
+                  type="text"
+                  defaultValue={u.department ?? ""}
+                  disabled={pendingDepartmentUserId === u.id}
+                  onBlur={(e) => applyDepartmentChange(u, e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") e.currentTarget.blur();
+                  }}
+                  placeholder="No department"
+                  title="Department — used to route expense approvals to the right delegate"
+                  className="w-32 rounded-full border border-border bg-surface px-2.5 py-1 text-xs text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50"
+                />
 
                 {(u.employeeRoles ?? []).map((r) => (
                   <span
@@ -694,6 +823,10 @@ export default function EmployeeRolesPage() {
     }
   }
 
+  function handleUserDepartmentChanged(userId: string, department: string | null) {
+    setUsers((prev) => prev?.map((u) => (u.id === userId ? { ...u, department } : u)) ?? null);
+  }
+
   if (!roles || !users) {
     return (
       <div>
@@ -726,6 +859,18 @@ export default function EmployeeRolesPage() {
         <RoleCatalog
           roles={roles}
           onCreated={(role) => setRoles((prev) => [...(prev ?? []), role])}
+          onUpdated={(updated) => {
+            setRoles((prev) => prev?.map((r) => (r.id === updated.id ? updated : r)) ?? null);
+            setUsers(
+              (prev) =>
+                prev?.map((u) => ({
+                  ...u,
+                  employeeRoles: u.employeeRoles?.map((r) =>
+                    r.id === updated.id ? { ...r, name: updated.name } : r,
+                  ),
+                })) ?? null,
+            );
+          }}
           onDeleted={(id) => {
             setRoles((prev) => prev?.filter((r) => r.id !== id) ?? null);
             setUsers(
@@ -744,6 +889,7 @@ export default function EmployeeRolesPage() {
           onUserCreated={handleUserCreated}
           onUserRolesUpdated={handleUserRolesUpdated}
           onUserRoleChanged={handleUserRoleChanged}
+          onUserDepartmentChanged={handleUserDepartmentChanged}
           onUserBlockChanged={(updated) =>
             setUsers((prev) => prev?.map((u) => (u.id === updated.id ? { ...u, isActive: updated.isActive } : u)) ?? null)
           }

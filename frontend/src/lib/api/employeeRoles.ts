@@ -20,6 +20,16 @@ export async function deleteRole(id: string) {
   await apiClient.delete(`/employee-roles/${id}`);
 }
 
+export interface UpdateRolePayload {
+  name?: string;
+  description?: string;
+}
+
+export async function updateRole(id: string, payload: UpdateRolePayload) {
+  const { data } = await apiClient.patch<ApiEnvelope<EmployeeRole>>(`/employee-roles/${id}`, payload);
+  return data.data;
+}
+
 export async function suggestDescription(name: string) {
   const { data } = await apiClient.post<ApiEnvelope<{ description: string | null }>>(
     '/employee-roles/suggest-description',

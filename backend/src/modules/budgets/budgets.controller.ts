@@ -37,6 +37,15 @@ export class BudgetsController {
     return this.budgetsService.getDashboard(user.tenantId);
   }
 
+  // Just the category names, no amounts — safe for any authenticated user
+  // (not just FINANCE_VISIBLE_ROLES) so the profile page can offer them as
+  // Department options without leaking allocation/spend figures to everyone.
+  @Get('department-names')
+  @Roles()
+  listDepartmentNames(@CurrentUser() user: AuthenticatedUser) {
+    return this.budgetsService.listDepartmentNames(user.tenantId);
+  }
+
   @Get('transactions')
   getTransactions(
     @CurrentUser() user: AuthenticatedUser,

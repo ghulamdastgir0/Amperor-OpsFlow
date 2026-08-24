@@ -14,6 +14,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { EmployeeRolesService } from './employee-roles.service';
 import { CreateEmployeeRoleDto } from './dto/create-employee-role.dto';
+import { UpdateEmployeeRoleDto } from './dto/update-employee-role.dto';
 import { AssignEmployeeRolesDto } from './dto/assign-employee-roles.dto';
 import { SendBroadcastDto } from './dto/send-broadcast.dto';
 import { SuggestDescriptionDto } from './dto/suggest-description.dto';
@@ -50,6 +51,15 @@ export class EmployeeRolesController {
       user.tenantId,
       dto.name,
     );
+  }
+
+  @Patch(':id')
+  update(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateEmployeeRoleDto,
+  ) {
+    return this.employeeRolesService.update(user.tenantId, id, dto);
   }
 
   @Delete(':id')

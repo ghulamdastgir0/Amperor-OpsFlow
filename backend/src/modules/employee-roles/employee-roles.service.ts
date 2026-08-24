@@ -12,6 +12,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PoliciesService } from '../policies/policies.service';
 import { LlmService } from '../llm/llm.service';
 import { CreateEmployeeRoleDto } from './dto/create-employee-role.dto';
+import { UpdateEmployeeRoleDto } from './dto/update-employee-role.dto';
 import { AssignEmployeeRolesDto } from './dto/assign-employee-roles.dto';
 import { SendBroadcastDto } from './dto/send-broadcast.dto';
 
@@ -119,6 +120,30 @@ export class EmployeeRolesService {
       data: { tenantId, name: dto.name, description: dto.description },
     });
     return { ...role, memberCount: 0 };
+  }
+
+  async update(tenantId: string, id: string, dto: UpdateEmployeeRoleDto) {
+    const role = await this.prisma.employeeRole.findFirst({
+      where: { id, tenantId },
+    });
+    if (!role) throw new NotFoundException('Role not found');
+
+    if (dto.name && dto.name !== role.name) {
+      const existing = await this.prisma.employeeRole.findUnique({
+        where: { tenantId_name: { tenantId, name: dto.name } },
+      });
+      if (existing) {
+        throw new BadRequestException('A role with this name already exists');
+      }
+    }
+
+    const updated = await this.prisma.employeeRole.update({
+      where: { id },
+      data: { name: dto.name, description: dto.description },
+      include: { _count: { select: { members: true } } },
+    });
+    const { _count, ...rest } = updated;
+    return { ...rest, memberCount: _count.members };
   }
 
   async remove(tenantId: string, id: string) {
