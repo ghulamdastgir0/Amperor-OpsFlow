@@ -333,6 +333,14 @@ export class EmployeeRolesService {
       requestId: string;
       intentType: string;
       rawPrompt: string;
+      // The assistant's own natural-language rewrite of the request, written
+      // to read as a continuation of the requester's name (see
+      // AssistantTools.fileRequest's routingSummary field) — preferred over
+      // a raw template so the recipient gets an actual readable message
+      // instead of "New general query from X: <quoted raw text>". Never
+      // includes the internal request ID either way; that's meaningless to
+      // a Slack reader.
+      summary?: string;
     },
   ): Promise<{ delivered: boolean }> {
     try {
@@ -353,8 +361,15 @@ export class EmployeeRolesService {
         where: { id: input.requesterId },
         select: { name: true },
       });
+      const requesterName = requester?.name ?? 'An employee';
+      // Falls back to a plain restatement only if the model didn't provide
+      // a summary — shouldn't normally happen since the tool schema marks it
+      // required whenever routing occurs, but this keeps the message
+      // sensible (and still ID-free) rather than breaking if it's ever missing.
       const intentLabel = input.intentType.replace(/_/g, ' ').toLowerCase();
-      const text = `New ${intentLabel} from ${requester?.name ?? 'an employee'}: "${input.rawPrompt}" (ref \`${input.requestId}\`)`;
+      const text = input.summary
+        ? `${requesterName} ${input.summary}`
+        : `${requesterName} submitted a ${intentLabel}: "${input.rawPrompt}"`;
 
       const roleHolders = await this.prisma.user.findMany({
         where: {

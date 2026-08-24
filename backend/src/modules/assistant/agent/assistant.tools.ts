@@ -82,6 +82,7 @@ export function buildAssistantTools(
         budgetDepartment?: string;
         leaveStartDate?: string;
         leaveEndDate?: string;
+        routingSummary?: string;
       },
       config: RunnableConfig,
     ) => {
@@ -109,6 +110,7 @@ export function buildAssistantTools(
             requestId: request.id,
             intentType: input.intentType,
             rawPrompt,
+            summary: input.routingSummary,
           },
         );
       }
@@ -135,14 +137,14 @@ export function buildAssistantTools(
           .boolean()
           .optional()
           .describe(
-            'Only meaningful alongside routeToRoleName. true if this is a real decision someone holding that role must approve or reject before it can proceed (e.g. a leave request needing HR sign-off, a purchase needing IT approval) — the request stays pending until a role-holder decides it. false if it is purely informational and no approval is expected (e.g. "ask IT about the wifi password", "tell HR my stipend did not arrive") — it just gets logged and forwarded. Omit when routeToRoleName is omitted.',
+            'Only meaningful alongside routeToRoleName. true if the role-holder themselves must make a real, non-monetary decision before this can proceed (e.g. HR signing off on a leave request, a manager signing off on a work-from-home request) — the request stays pending until they decide it. false if it is purely informational — no approval from THEM is expected, either because nothing needs deciding (e.g. "ask IT about the wifi password") or because the actual decision belongs to Finance instead (see statedAmount) and this role is just being kept in the loop (e.g. IT/Office Manager notified about an equipment purchase that Finance will approve). Omit when routeToRoleName is omitted.',
           ),
         statedAmount: z
           .number()
           .min(0.01)
           .optional()
           .describe(
-            'If the user stated a specific dollar amount for this request in their message (e.g. "$100 for AC repair"), put the plain number here (no currency symbol). Omit entirely if no amount was mentioned — do not guess or estimate one.',
+            'The dollar amount this request will cost/reimburse — REQUIRED for a purchase request or expense reimbursement (ask "roughly how much will this cost?" first if the user did not say; don\'t file without it). Sets up Finance Approver routing/budget reservation regardless of which EMPLOYEE ROLE (if any) is also notified via routeToRoleName — routeToRoleName is for keeping the right people informed/deciding non-monetary parts, statedAmount is what actually gets this to someone who can approve the money. If the user gave a range (e.g. "$10 to $20"), use the higher number, so enough is reserved to cover it. Omit only for requests with no cost at all (e.g. a leave request, a horizontal query) — never omit it for a purchase/expense just because no figure was given; ask instead.',
           ),
         budgetDepartment: z
           .string()
@@ -161,6 +163,18 @@ export function buildAssistantTools(
           .optional()
           .describe(
             'For a leave request OR a remote/work-from-home request: the last day off/remote (inclusive), as an ISO date (YYYY-MM-DD) — same rules as leaveStartDate. For "a 2 day leave starting Monday", that\'s Monday and Tuesday.',
+          ),
+        routingSummary: z
+          .string()
+          .optional()
+          .describe(
+            'Required whenever routeToRoleName is set: a short, natural continuation sentence describing the ' +
+              'issue/ask for the role-holder to read — written to follow the requester\'s name, e.g. for a WiFi ' +
+              'complaint: "is having trouble with the WiFi and would like it looked into." Rewrite/summarize the ' +
+              'request in your own words; never just quote the raw message verbatim. Do NOT include the ' +
+              "requester's name (added automatically), any internal ID/reference, or any mention of approval " +
+              'status ("no approval needed", "requires approval", etc.) — that\'s not the reader\'s concern here, ' +
+              'just tell them what\'s needed.',
           ),
       }),
     },
