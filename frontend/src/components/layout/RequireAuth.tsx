@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Loader2, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useHasMounted } from "@/hooks/useHasMounted";
+import { authApi } from "@/lib/api";
+import { setAuthToken } from "@/lib/api/client";
 import type { Role } from "@/lib/types";
 
 export function RequireAuth({
@@ -27,6 +29,21 @@ export function RequireAuth({
       router.replace("/login");
     }
   }, [hasMounted, isAuthenticated, router]);
+
+  useEffect(() => {
+    // The stored token's role/name/email are frozen as of login — an admin
+    // changing this user's role elsewhere has no way to reach an already
+    // -open session otherwise. Re-mint it on every mount (page load / hard
+    // reload) so a role change shows up without forcing a logout. Best
+    // -effort: a stale token still works fine until it naturally expires,
+    // so a failed refresh (offline, etc.) isn't worth surfacing.
+    if (hasMounted && isAuthenticated) {
+      authApi
+        .refreshToken()
+        .then((result) => setAuthToken(result.accessToken))
+        .catch(() => {});
+    }
+  }, [hasMounted, isAuthenticated]);
 
   if (!hasMounted || !isAuthenticated) {
     return (

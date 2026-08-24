@@ -92,15 +92,20 @@ export class JwtAuthGuard implements CanActivate {
 
     // Immediate cutoff: a blocked employee's already-issued JWT stops
     // working on their very next request, not just at their next login.
+    // Also re-reads role here (rather than trusting payload.role) so an
+    // admin changing someone's role takes effect on their very next
+    // request too — the JWT itself is only refreshed at login/POST
+    // /auth/refresh, so payload.role can otherwise be stale for as long
+    // as the token remains valid.
     const user = await this.prisma.user.findUnique({
       where: { id: payload.userId },
-      select: { isActive: true },
+      select: { isActive: true, role: true },
     });
     if (!user || !user.isActive) {
       throw new ForbiddenException('This account has been blocked');
     }
 
-    request.user = payload;
+    request.user = { ...payload, role: user.role };
     return true;
   }
 
