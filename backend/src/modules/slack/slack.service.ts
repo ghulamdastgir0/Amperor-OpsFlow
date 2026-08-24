@@ -2,11 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
-import { RequestChannel, RequestStatus, Tenant } from '@prisma/client';
+import { RequestChannel, RequestStatus, Role, Tenant } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TenantsService } from '../tenants/tenants.service';
 import { AssistantService } from '../assistant/assistant.service';
 import { RequestsService } from '../requests/requests.service';
+import { UsersService } from '../users/users.service';
 import { OcrService } from './ocr.service';
 import { StorageService } from '../../common/storage/storage.service';
 import {
@@ -19,6 +20,11 @@ import { randomUUID } from 'crypto';
 interface SlackAuthTestResponse {
   ok: boolean;
   user_id?: string;
+}
+
+interface SlackUsersInfoResponse {
+  ok: boolean;
+  user?: { profile?: { email?: string; real_name?: string } };
 }
 
 @Injectable()
@@ -43,6 +49,7 @@ export class SlackService {
     private readonly assistant: AssistantService,
     private readonly requests: RequestsService,
     private readonly storage: StorageService,
+    private readonly users: UsersService,
   ) {}
 
   // Ingestion Pipeline Sequence (SRS Section 5.1) + query routing:
@@ -82,22 +89,20 @@ export class SlackService {
 
     if (!this.shouldProcessEvent(event, tenant.slackQueryChannelId)) return;
 
-    const requesterId = await this.resolveRequesterId(tenant.id, event.user);
+    const requesterId = await this.resolveOrProvisionRequesterId(
+      tenant,
+      botToken,
+      event,
+    );
     if (!requesterId) {
       this.logger.warn(
-        `Slack user ${event.user} is not linked to a user in tenant ${tenant.id}`,
+        `Could not resolve or provision a user for Slack user ${event.user} in tenant ${tenant.id}`,
       );
-      // Being in the Slack workspace isn't enough on its own — being in the
-      // workspace AND completing "Continue with Slack" once is what actually
-      // provisions the User row (SlackOAuthService.completeSlackLogin). Without
-      // this, a not-yet-registered person's very first message just vanished
-      // with nothing but a server-side log to show for it.
       if (event.channel) {
-        const loginUrl = `${this.config.get<string>('frontendUrl')}/login`;
         await this.postMessage(
           botToken,
           event.channel,
-          `I don't have an OpsFlow account linked to you yet. Sign in at ${loginUrl} with "Continue with Slack" first, then message me again.`,
+          "I couldn't verify your Slack profile to set up an OpsFlow account for you — ask an admin to add you manually.",
           event.thread_ts ?? event.ts,
         );
       }
@@ -301,5 +306,68 @@ export class SlackService {
       where: { tenantId, slackUserId },
     });
     return user?.id;
+  }
+
+  // Being an authenticated member of a Slack workspace linked to a tenant is
+  // already treated as proof of belonging to it — SlackOAuthService.
+  // completeSlackLogin auto-provisions on that basis via "Continue with
+  // Slack". This applies the same rule the first time someone messages the
+  // bot directly, instead of requiring a separate trip through the portal
+  // first. An existing password-based user with a matching email is linked
+  // rather than duplicated, same as the login flow does.
+  private async resolveOrProvisionRequesterId(
+    tenant: Tenant,
+    botToken: string,
+    event: SlackEventPayloadDto,
+  ): Promise<string | undefined> {
+    const existing = await this.resolveRequesterId(tenant.id, event.user);
+    if (existing) return existing;
+    if (!event.user) return undefined;
+
+    const profile = await this.fetchUserProfile(botToken, event.user);
+    if (!profile?.email) {
+      this.logger.warn(
+        `Could not read Slack profile/email for user ${event.user} in tenant ${tenant.id} — can't auto-provision`,
+      );
+      return undefined;
+    }
+
+    const matchedByEmail = await this.users.findByEmail(
+      tenant.id,
+      profile.email,
+    );
+    if (matchedByEmail) {
+      const linked = await this.users.linkSlackUserId(
+        matchedByEmail.id,
+        event.user,
+      );
+      return linked.id;
+    }
+
+    const created = await this.users.createSlackUser(tenant.id, {
+      email: profile.email,
+      name: profile.name ?? profile.email,
+      slackUserId: event.user,
+      role: Role.EMPLOYEE,
+    });
+    return created.id;
+  }
+
+  private async fetchUserProfile(
+    botToken: string,
+    slackUserId: string,
+  ): Promise<{ email: string; name?: string } | undefined> {
+    const response = await firstValueFrom(
+      this.httpService.get<SlackUsersInfoResponse>(
+        'https://slack.com/api/users.info',
+        {
+          params: { user: slackUserId },
+          headers: { Authorization: `Bearer ${botToken}` },
+        },
+      ),
+    );
+    const user = response.data.user;
+    if (!response.data.ok || !user?.profile?.email) return undefined;
+    return { email: user.profile.email, name: user.profile.real_name };
   }
 }

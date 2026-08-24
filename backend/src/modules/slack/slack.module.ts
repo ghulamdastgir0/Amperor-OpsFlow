@@ -4,6 +4,7 @@ import { TenantsModule } from '../tenants/tenants.module';
 import { AssistantModule } from '../assistant/assistant.module';
 import { RequestsModule } from '../requests/requests.module';
 import { LlmModule } from '../llm/llm.module';
+import { UsersModule } from '../users/users.module';
 import { SlackService } from './slack.service';
 import { SlackController } from './slack.controller';
 import { OcrModule } from './ocr.module';
@@ -16,6 +17,7 @@ import { OcrModule } from './ocr.module';
     RequestsModule,
     LlmModule,
     OcrModule,
+    UsersModule,
   ],
   controllers: [SlackController],
   providers: [SlackService],
