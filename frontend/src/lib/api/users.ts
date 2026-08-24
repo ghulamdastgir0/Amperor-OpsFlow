@@ -24,6 +24,13 @@ export async function updateUserRole(userId: string, role: Role) {
   return data.data;
 }
 
+export async function updateUserDepartment(userId: string, department: string) {
+  const { data } = await apiClient.patch<ApiEnvelope<User>>(`/users/${userId}/department`, {
+    department: department || undefined,
+  });
+  return data.data;
+}
+
 export async function getMyProfile() {
   const { data } = await apiClient.get<ApiEnvelope<User>>('/users/me');
   return data.data;

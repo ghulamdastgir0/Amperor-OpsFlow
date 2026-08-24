@@ -11,6 +11,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { UpdateUserDepartmentDto } from './dto/update-user-department.dto';
 
 @Injectable()
 export class UsersService {
@@ -187,6 +188,29 @@ export class UsersService {
       data: { role },
     });
     await this.assignAllRolesIfAdmin(tenantId, updated.id, updated.role);
+    return this.sanitize(updated);
+  }
+
+  // Only a SYSTEM_ADMIN can fix another employee's department — an employee
+  // who never set their own (most notably anyone auto-provisioned via Slack,
+  // see SlackService.resolveOrProvisionRequesterId) previously had no way to
+  // get one assigned short of editing their own profile themselves. This
+  // matters beyond a display field: Request.requester.department is what
+  // FinanceDelegation matching keys off of.
+  async updateDepartment(
+    tenantId: string,
+    targetUserId: string,
+    dto: UpdateUserDepartmentDto,
+  ) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: targetUserId, tenantId },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const updated = await this.prisma.user.update({
+      where: { id: targetUserId },
+      data: { department: dto.department || null },
+    });
     return this.sanitize(updated);
   }
 

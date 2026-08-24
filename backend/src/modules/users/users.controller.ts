@@ -16,6 +16,7 @@ import { Role } from '@prisma/client';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
+import { UpdateUserDepartmentDto } from './dto/update-user-department.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 
@@ -82,6 +83,16 @@ export class UsersController {
       id,
       dto.role,
     );
+  }
+
+  @Patch(':id/department')
+  @Roles(Role.SYSTEM_ADMIN)
+  updateDepartment(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateUserDepartmentDto,
+  ) {
+    return this.usersService.updateDepartment(user.tenantId, id, dto);
   }
 
   // Immediate cutoff — see JwtAuthGuard, which re-checks isActive on every
