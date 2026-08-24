@@ -191,6 +191,154 @@ export class RequestsService {
     });
   }
 
+  // Used by the assistant's get_my_request_status tool ("what's the status
+  // of my wifi router request?") — always scoped to the caller's OWN filed
+  // requests, regardless of role. Deliberately not findAll: findAll's
+  // BROAD_VISIBILITY_ROLES see every tenant request, which "check MY
+  // status" must never leak, even for a Finance Approver/admin asking about
+  // their own submission.
+  async findRecentForRequester(
+    tenantId: string,
+    requesterId: string,
+    limit = 5,
+  ) {
+    return this.prisma.request.findMany({
+      where: { tenantId, requesterId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      select: {
+        rawPrompt: true,
+        parsedIntent: true,
+        status: true,
+        statedAmount: true,
+        createdAt: true,
+        routedRole: { select: { name: true } },
+        progressNote: true,
+        progressNoteAt: true,
+      },
+    });
+  }
+
+  // Used by the assistant's report_request_progress tool — "open" items
+  // currently routed to a role this user holds (or every open routed item,
+  // for a SYSTEM_ADMIN), so someone like IT Support can report "the router
+  // is fixed" against the right request. Excludes anything already
+  // terminal — nothing to update on a rejected/cancelled/already-resolved
+  // request.
+  private static readonly OPEN_ROUTED_STATUSES: RequestStatus[] = [
+    RequestStatus.PENDING_ROLE_APPROVAL,
+    RequestStatus.PENDING_MANAGER_APPROVAL,
+    RequestStatus.PENDING_FINANCE_APPROVAL,
+    RequestStatus.APPROVED,
+    RequestStatus.NOTED,
+  ];
+
+  async findOpenRoutedForUser(tenantId: string, userId: string, role: Role) {
+    const heldRoleIds =
+      role === Role.SYSTEM_ADMIN ? null : await this.getHeldRoleIds(userId);
+    if (heldRoleIds && heldRoleIds.length === 0) return [];
+
+    return this.prisma.request.findMany({
+      where: {
+        tenantId,
+        status: { in: RequestsService.OPEN_ROUTED_STATUSES },
+        routedRoleId: heldRoleIds ? { in: heldRoleIds } : { not: null },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      select: {
+        id: true,
+        rawPrompt: true,
+        parsedIntent: true,
+        requester: { select: { name: true } },
+      },
+    });
+  }
+
+  // Records a free-text progress update against a request the caller is
+  // authorized to update (see findOpenRoutedForUser's scoping — this trusts
+  // requestId came from that list, so it re-checks routing/role-membership
+  // here rather than the caller's role alone, same defense-in-depth as
+  // decideRoleStage). When isResolved is true, also marks it COMPLETED and
+  // notifies the original requester — the "IT told the assistant it's fixed,
+  // now tell Ali Hamza" loop.
+  async recordProgressNote(
+    tenantId: string,
+    actingUser: { userId: string; role: Role },
+    requestId: string,
+    note: string,
+    isResolved: boolean,
+  ) {
+    const request = await this.prisma.request.findFirst({
+      where: { id: requestId, tenantId },
+      include: { requester: true },
+    });
+    if (!request) throw new NotFoundException('Request not found');
+    if (!request.routedRoleId) {
+      throw new ForbiddenException(
+        'This request was never routed to a role, so there is nothing to report progress on',
+      );
+    }
+    if (actingUser.role !== Role.SYSTEM_ADMIN) {
+      const holdsRole = await this.prisma.userEmployeeRole.findFirst({
+        where: {
+          userId: actingUser.userId,
+          employeeRoleId: request.routedRoleId,
+        },
+      });
+      if (!holdsRole) {
+        throw new ForbiddenException(
+          'Only someone holding the role this was routed to, or a system admin, can report progress on it',
+        );
+      }
+    }
+
+    const updated = await this.prisma.request.update({
+      where: { id: requestId },
+      data: {
+        progressNote: note,
+        progressNoteAt: new Date(),
+        ...(isResolved ? { status: RequestStatus.COMPLETED } : {}),
+      },
+    });
+
+    if (isResolved) {
+      await this.notifyRequesterOfProgress(
+        tenantId,
+        request.requester,
+        note,
+      );
+    }
+    return updated;
+  }
+
+  // Best-effort, never throws — mirrors notifyRequesterOfDecision, but for
+  // a progress note rather than an approve/reject outcome.
+  private async notifyRequesterOfProgress(
+    tenantId: string,
+    requester: { id: string; name: string; slackUserId: string | null },
+    note: string,
+  ) {
+    try {
+      if (!requester.slackUserId) return;
+      const botToken = await this.resolveBotToken(tenantId);
+      if (!botToken) return;
+
+      const text = `Update on your request: ${note}`;
+      await firstValueFrom(
+        this.httpService.post(
+          'https://slack.com/api/chat.postMessage',
+          { channel: requester.slackUserId, text },
+          { headers: { Authorization: `Bearer ${botToken}` } },
+        ),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Failed to notify requester of progress: ${(error as Error).message}`,
+      );
+    }
+  }
+
   async findOne(
     tenantId: string,
     id: string,
@@ -428,6 +576,25 @@ export class RequestsService {
         tenantId,
         request.requester,
         result.status,
+        request.rawPrompt,
+      );
+    }
+    // Money was approved for a request that was ALSO routed to a role for
+    // visibility (e.g. IT Support notified about a router purchase Finance
+    // decides) — let them know the money came through so they can actually
+    // go do the work. Skipped when the routed role was itself the decider
+    // (request.status here is the PRE-decision stage — PENDING_ROLE_APPROVAL
+    // means they just approved it themselves via decideRoleStage and already
+    // know).
+    if (
+      result.status === RequestStatus.APPROVED &&
+      request.routedRoleId &&
+      request.status !== RequestStatus.PENDING_ROLE_APPROVAL
+    ) {
+      await this.notifyRoutedRoleOfApproval(
+        tenantId,
+        request.routedRoleId,
+        effectiveAmount,
         request.rawPrompt,
       );
     }
@@ -851,6 +1018,52 @@ export class RequestsService {
     } catch (error) {
       this.logger.warn(
         `Failed to notify requester of decision: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  // Best-effort, never throws. Pings everyone currently holding the routed
+  // role once Finance/a manager/an admin approves the money — a plain
+  // "notified about the request" ping when it was filed doesn't tell them
+  // it's actually funded and ready to act on.
+  private async notifyRoutedRoleOfApproval(
+    tenantId: string,
+    routedRoleId: string,
+    amount: number,
+    rawPrompt: string,
+  ) {
+    try {
+      const botToken = await this.resolveBotToken(tenantId);
+      if (!botToken) return;
+
+      const holders = await this.prisma.user.findMany({
+        where: {
+          tenantId,
+          isActive: true,
+          slackUserId: { not: null },
+          employeeRoles: { some: { employeeRoleId: routedRoleId } },
+        },
+      });
+      if (holders.length === 0) return;
+
+      const text =
+        amount > 0
+          ? `Finance approved $${amount.toFixed(2)} for: "${rawPrompt}" — go ahead.`
+          : `"${rawPrompt}" was approved — go ahead.`;
+      await Promise.all(
+        holders.map((holder) =>
+          firstValueFrom(
+            this.httpService.post(
+              'https://slack.com/api/chat.postMessage',
+              { channel: holder.slackUserId, text },
+              { headers: { Authorization: `Bearer ${botToken}` } },
+            ),
+          ),
+        ),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Failed to notify routed role of approval: ${(error as Error).message}`,
       );
     }
   }

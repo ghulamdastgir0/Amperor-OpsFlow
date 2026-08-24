@@ -309,6 +309,14 @@ model Request {
   // programmatically at all.
   leaveStartDate DateTime?      @map("leave_start_date") @db.Date
   leaveEndDate   DateTime?      @map("leave_end_date") @db.Date
+  // Free-text update from whoever a request was routed to (e.g. IT Support
+  // saying "the router is fixed") — distinct from the APPROVED/REJECTED
+  // decision, which only covers whether the money/ask was authorized, not
+  // whether the actual work described is done. Surfaced back to the
+  // requester via get_my_request_status and, when isResolved was set, a
+  // direct notification. See RequestsService.recordProgressNote.
+  progressNote   String?        @map("progress_note") @db.Text
+  progressNoteAt DateTime?      @map("progress_note_at") @db.Timestamptz
   createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz
 
   tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)

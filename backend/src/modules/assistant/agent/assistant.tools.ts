@@ -17,6 +17,23 @@ const FINANCE_VISIBLE_ROLES = new Set<Role>([
   Role.SYSTEM_ADMIN,
 ]);
 
+// Plain-English phrasing for get_my_request_status's tool result, so the
+// model relays a consistent, readable status rather than inventing its own
+// wording around (or leaking) the raw RequestStatus enum value.
+const REQUEST_STATUS_LABELS: Record<string, string> = {
+  DRAFT: 'a draft, not yet submitted',
+  PENDING_POLICY_CHECK: 'being checked against company policy',
+  PENDING_MANAGER_APPROVAL: 'waiting on manager approval',
+  PENDING_FINANCE_APPROVAL: 'waiting on Finance approval',
+  PENDING_ROLE_APPROVAL: 'waiting on approval from whoever it was routed to',
+  APPROVED: 'approved',
+  REJECTED: 'rejected',
+  ESCALATED: 'escalated to a system admin to resolve',
+  COMPLETED: 'completed — no approval was needed',
+  NOTED: 'logged — no approval was needed',
+  CANCELLED: 'cancelled',
+};
+
 interface AgentContext {
   tenantId: string;
   userId: string;
@@ -206,5 +223,123 @@ export function buildAssistantTools(
     },
   );
 
-  return [searchPolicy, fileRequest, getBudgetSummary];
+  const getMyRequestStatus = tool(
+    async (_input: Record<string, never>, config: RunnableConfig) => {
+      const { tenantId, userId } = getContext(config);
+      const recent = await requests.findRecentForRequester(tenantId, userId);
+      if (recent.length === 0) {
+        return "You don't have any requests on file yet.";
+      }
+      return JSON.stringify(
+        recent.map((r) => ({
+          whatItWasFor: r.rawPrompt,
+          intentType: r.parsedIntent,
+          status: REQUEST_STATUS_LABELS[r.status] ?? r.status,
+          amount:
+            r.statedAmount != null ? Number(r.statedAmount) : undefined,
+          routedTo: r.routedRole?.name,
+          filedOn: r.createdAt.toISOString().slice(0, 10),
+          // A free-text update from whoever it was routed to (e.g. IT Support
+          // saying the router is fixed) — distinct from `status`, which only
+          // reflects whether the money/ask was approved, not whether the
+          // actual work is done. Present it when there is one; it's often
+          // more current/relevant than status alone.
+          latestUpdate: r.progressNote ?? undefined,
+        })),
+      );
+    },
+    {
+      name: 'get_my_request_status',
+      description:
+        "Look up the current status of the requester's own most recently filed requests (purchase requests, expense reimbursements, leave requests, routed questions, etc.). Call this whenever they ask about the status/progress of something they filed — e.g. \"any update on my wifi router?\" — instead of guessing or repeating what you said earlier in the conversation, which may now be stale (a request can move stages after you last replied, e.g. from IT's visibility to Finance approval, or IT reporting it fixed). Only ever returns THIS user's own requests, never anyone else's. Match the request they're asking about by what it was for — if more than one recent request could match, ask which one they mean rather than guessing. When a result has latestUpdate, lead with that — it's the most current, human answer to \"what's going on with this.\"",
+      schema: z.object({}),
+    },
+  );
+
+  const reportRequestProgress = tool(
+    async (
+      input: { about: string; note: string; isResolved: boolean },
+      config: RunnableConfig,
+    ) => {
+      const { tenantId, userId, userRole } = getContext(config);
+      const open = await requests.findOpenRoutedForUser(
+        tenantId,
+        userId,
+        userRole,
+      );
+      if (open.length === 0) {
+        return "You don't currently have any open requests routed to you to report progress on.";
+      }
+
+      const needle = input.about.trim().toLowerCase();
+      const matches = needle
+        ? open.filter((r) => r.rawPrompt.toLowerCase().includes(needle))
+        : open;
+
+      if (matches.length === 1) {
+        await requests.recordProgressNote(
+          tenantId,
+          { userId, role: userRole },
+          matches[0].id,
+          input.note,
+          input.isResolved,
+        );
+        return JSON.stringify({ recorded: true, about: matches[0].rawPrompt });
+      }
+
+      if (matches.length === 0 && open.length === 1) {
+        // Only one open item exists at all — use it even if the keyword
+        // guess didn't match its exact wording.
+        await requests.recordProgressNote(
+          tenantId,
+          { userId, role: userRole },
+          open[0].id,
+          input.note,
+          input.isResolved,
+        );
+        return JSON.stringify({ recorded: true, about: open[0].rawPrompt });
+      }
+
+      // Ambiguous — hand back the open candidates so the model can ask
+      // which one the update is about instead of guessing.
+      return JSON.stringify({
+        recorded: false,
+        reason: 'multiple possible matches, ask which one',
+        openRequests: (matches.length > 0 ? matches : open).map((r) => ({
+          whatItWasFor: r.rawPrompt,
+          requestedBy: r.requester.name,
+        })),
+      });
+    },
+    {
+      name: 'report_request_progress',
+      description:
+        'Record a progress update on a request that was routed to a role the current user holds (e.g. IT Support reporting "the router is fixed" or "still waiting on the part"). Call this whenever someone who isn\'t the original requester tells you an update about something routed to them — never file it as a new request. Only ever updates a request actually routed to one of their roles (or any, for a system admin) — enforced server-side, not just by asking. If they have more than one open item and it\'s not clear which this is about, ask them (or check the tool result\'s openRequests) rather than guessing.',
+      schema: z.object({
+        about: z
+          .string()
+          .describe(
+            'A few keywords from what the update is about, in the user\'s own words (e.g. "wifi router", "AC repair") — used to find the right open request among the ones routed to them. Leave blank only if they clearly have just one open item.',
+          ),
+        note: z
+          .string()
+          .describe(
+            'The update itself, rewritten as a short, natural sentence (not a raw quote) — e.g. "the router is fixed and back online" or "waiting on a replacement part, expect another day." This is shown directly to the original requester when isResolved is true.',
+          ),
+        isResolved: z
+          .boolean()
+          .describe(
+            'true if this update means the issue/ask is now fully done (e.g. "fixed," "delivered," "completed") — this closes the request and notifies the original requester with your note. false for a partial/in-progress update — recorded, but nothing is closed and the requester is not proactively notified (they\'ll see it next time they ask for status).',
+          ),
+      }),
+    },
+  );
+
+  return [
+    searchPolicy,
+    fileRequest,
+    getBudgetSummary,
+    getMyRequestStatus,
+    reportRequestProgress,
+  ];
 }
