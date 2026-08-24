@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { AlertCircle, Megaphone, Plus, Tag, UserPlus, Wand2, X } from "lucide-react";
 import { employeeRolesApi, usersApi } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
-import type { EmployeeRole, Role, RoleBroadcast, User } from "@/lib/types";
+import type { EmployeeRole, Role, User } from "@/lib/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -549,7 +549,7 @@ function BroadcastComposer({
   onSent,
 }: {
   roles: EmployeeRole[];
-  onSent: (broadcast: RoleBroadcast) => void;
+  onSent: () => void;
 }) {
   const toast = useToast();
   const [selectedRoleIds, setSelectedRoleIds] = useState<Set<string>>(new Set());
@@ -577,7 +577,7 @@ function BroadcastComposer({
         employeeRoleIds: Array.from(selectedRoleIds),
         message,
       });
-      onSent(broadcast);
+      onSent();
       setMessage("");
       setSelectedRoleIds(new Set());
       toast.success(
@@ -648,47 +648,16 @@ function BroadcastComposer({
   );
 }
 
-function BroadcastHistory({ broadcasts }: { broadcasts: RoleBroadcast[] }) {
-  if (broadcasts.length === 0) return null;
-
-  return (
-    <Card>
-      <h2 className="font-heading mb-4 text-sm font-semibold text-foreground">Recent Messages</h2>
-      <ul className="flex flex-col gap-4">
-        {broadcasts.map((b) => (
-          <li key={b.id} className="border-b border-border pb-4 last:border-0 last:pb-0">
-            <div className="mb-1 flex flex-wrap items-center gap-1.5">
-              {b.targets.map((t) => (
-                <Badge key={t.employeeRole.id} tone="violet">
-                  {t.employeeRole.name}
-                </Badge>
-              ))}
-              {b.forwardedToAdmin && <Badge tone="amber">Forwarded to admin</Badge>}
-              <span className="ml-auto text-xs text-muted">{new Date(b.createdAt).toLocaleString()}</span>
-            </div>
-            <p className="whitespace-pre-wrap text-sm text-foreground">{b.message}</p>
-            <p className="mt-1 text-xs text-muted">
-              Sent by {b.sender.name} to {b.recipientCount} recipient{b.recipientCount === 1 ? "" : "s"}
-            </p>
-          </li>
-        ))}
-      </ul>
-    </Card>
-  );
-}
-
 export default function EmployeeRolesPage() {
   const [roles, setRoles] = useState<EmployeeRole[] | null>(null);
   const [users, setUsers] = useState<User[] | null>(null);
-  const [broadcasts, setBroadcasts] = useState<RoleBroadcast[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    Promise.all([employeeRolesApi.listRoles(), usersApi.listUsers(), employeeRolesApi.listBroadcasts()])
-      .then(([r, u, b]) => {
+    Promise.all([employeeRolesApi.listRoles(), usersApi.listUsers()])
+      .then(([r, u]) => {
         setRoles(r);
         setUsers(u);
-        setBroadcasts(b);
       })
       .catch(() => setError("Could not load roles. Is the backend running?"));
   }, []);
@@ -783,13 +752,8 @@ export default function EmployeeRolesPage() {
 
         <BroadcastComposer
           roles={roles}
-          onSent={(broadcast) => {
-            setBroadcasts((prev) => [broadcast, ...prev]);
-            employeeRolesApi.listRoles().then(setRoles).catch(() => {});
-          }}
+          onSent={() => employeeRolesApi.listRoles().then(setRoles).catch(() => {})}
         />
-
-        <BroadcastHistory broadcasts={broadcasts} />
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { AlertCircle, Bot, Send, Sparkles } from "lucide-react";
 import { assistantApi } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
@@ -22,25 +22,6 @@ export function ChatCanvas() {
   const [isSending, setIsSending] = useState(false);
   const [isSlow, setIsSlow] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const hasLoadedHistory = useRef(false);
-
-  useEffect(() => {
-    if (hasLoadedHistory.current) return;
-    hasLoadedHistory.current = true;
-    // Resume the most recent conversation on load — otherwise a page
-    // refresh (or just reopening the tab) makes an in-progress or just
-    // completed exchange look like it vanished, even though it's saved.
-    assistantApi
-      .listConversations()
-      .then(async (conversations) => {
-        const latest = conversations[0];
-        if (!latest) return;
-        const history = await assistantApi.getConversationMessages(latest.id);
-        setConversationId(latest.id);
-        setMessages(history);
-      })
-      .catch(() => {});
-  }, []);
 
   async function send(content: string) {
     if (!content.trim()) return;
