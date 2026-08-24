@@ -89,12 +89,12 @@ export class SlackService {
 
     if (!this.shouldProcessEvent(event, tenant.slackQueryChannelId)) return;
 
-    const requesterId = await this.resolveOrProvisionRequesterId(
+    const requester = await this.resolveOrProvisionRequesterId(
       tenant,
       botToken,
       event,
     );
-    if (!requesterId) {
+    if (!requester) {
       this.logger.warn(
         `Could not resolve or provision a user for Slack user ${event.user} in tenant ${tenant.id}`,
       );
@@ -108,6 +108,27 @@ export class SlackService {
       }
       return;
     }
+
+    // Blocking is meant as an immediate cutoff (see UsersController.block) —
+    // JwtAuthGuard already enforces this for the web app on every request,
+    // but the bot has no equivalent per-request auth check, so it has to be
+    // asserted here instead. Otherwise a blocked employee could keep filing
+    // requests and reading policy through Slack indefinitely.
+    if (!requester.isActive) {
+      this.logger.log(
+        `Ignoring Slack message from blocked user ${requester.id} in tenant ${tenant.id}`,
+      );
+      if (event.channel) {
+        await this.postMessage(
+          botToken,
+          event.channel,
+          'Your OpsFlow account has been blocked — contact a system admin.',
+          event.thread_ts ?? event.ts,
+        );
+      }
+      return;
+    }
+    const requesterId = requester.id;
 
     const text = await this.stripBotMention(event.text ?? '', tenant, botToken);
     const threadTs = event.thread_ts ?? event.ts;
@@ -304,8 +325,9 @@ export class SlackService {
     if (!slackUserId) return undefined;
     const user = await this.prisma.user.findFirst({
       where: { tenantId, slackUserId },
+      select: { id: true, isActive: true },
     });
-    return user?.id;
+    return user ?? undefined;
   }
 
   // Being an authenticated member of a Slack workspace linked to a tenant is
@@ -319,7 +341,7 @@ export class SlackService {
     tenant: Tenant,
     botToken: string,
     event: SlackEventPayloadDto,
-  ): Promise<string | undefined> {
+  ): Promise<{ id: string; isActive: boolean } | undefined> {
     const existing = await this.resolveRequesterId(tenant.id, event.user);
     if (existing) return existing;
     if (!event.user) return undefined;
@@ -341,7 +363,7 @@ export class SlackService {
         matchedByEmail.id,
         event.user,
       );
-      return linked.id;
+      return { id: linked.id, isActive: linked.isActive };
     }
 
     const created = await this.users.createSlackUser(tenant.id, {
@@ -350,7 +372,7 @@ export class SlackService {
       slackUserId: event.user,
       role: Role.EMPLOYEE,
     });
-    return created.id;
+    return { id: created.id, isActive: created.isActive };
   }
 
   private async fetchUserProfile(
