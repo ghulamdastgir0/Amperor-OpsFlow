@@ -6,9 +6,9 @@ import { currency } from "@/lib/statusDisplay";
 import { cn } from "@/lib/cn";
 
 function healthColor(pct: number) {
-  if (pct > 90) return { bar: "bg-red-500", text: "text-red-600" };
-  if (pct > 70) return { bar: "bg-amber-500", text: "text-amber-600" };
-  return { bar: "bg-emerald-500", text: "text-emerald-600" };
+  if (pct > 90) return { bar: "bg-red-500", text: "text-red-600 dark:text-red-400" };
+  if (pct > 70) return { bar: "bg-amber-500", text: "text-amber-600 dark:text-amber-400" };
+  return { bar: "bg-emerald-500", text: "text-emerald-600 dark:text-emerald-400" };
 }
 
 // Math.round() collapses anything under 0.5% to a misleading flat "0%" (e.g.
@@ -24,20 +24,22 @@ function StatTile({
   label,
   value,
   tone,
+  badgeTone = "bg-primary/10 text-primary",
 }: {
   icon: typeof Wallet;
   label: string;
   value: string;
   tone?: string;
+  badgeTone?: string;
 }) {
   return (
-    <Card className="flex items-start gap-3">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-primary">
-        <Icon className="size-4.5" aria-hidden />
+    <Card className="flex flex-col gap-4">
+      <span className={cn("flex size-10 shrink-0 items-center justify-center rounded-lg", badgeTone)}>
+        <Icon className="size-5" aria-hidden />
       </span>
       <div>
         <p className="text-xs text-muted">{label}</p>
-        <p className={cn("font-heading text-lg font-semibold text-foreground", tone)}>{value}</p>
+        <p className={cn("mt-1.5 font-heading text-2xl font-semibold text-foreground", tone)}>{value}</p>
       </div>
     </Card>
   );
@@ -60,7 +62,7 @@ function DepartmentCard({ budget }: { budget: BudgetWithSpend }) {
         <span className="text-sm font-medium text-foreground">{budget.departmentScope}</span>
         <span className={cn("text-xs font-medium", health.text)}>{formatPct(spentPct + reservedPct)} committed</span>
       </div>
-      <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-slate-100">
+      <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-white/10">
         <div className={cn("h-full", health.bar)} style={{ width: `${spentBarPct}%` }} />
         {budget.reserved > 0 && (
           <div
@@ -96,13 +98,23 @@ export function BudgetSummary({ dashboard }: { dashboard: FinanceDashboard }) {
           icon={Clock}
           label="Reserved (pending proof)"
           value={currency(dashboard.totals.reserved)}
-          tone={dashboard.totals.reserved > 0 ? "text-amber-600" : undefined}
+          tone={dashboard.totals.reserved > 0 ? "text-amber-600 dark:text-amber-400" : undefined}
+          badgeTone={
+            dashboard.totals.reserved > 0
+              ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+              : undefined
+          }
         />
         <StatTile
           icon={PiggyBank}
           label="Remaining Balance"
           value={currency(dashboard.totals.remaining)}
-          tone={dashboard.totals.remaining < 0 ? "text-red-600" : undefined}
+          tone={dashboard.totals.remaining < 0 ? "text-red-600 dark:text-red-400" : undefined}
+          badgeTone={
+            dashboard.totals.remaining < 0
+              ? "bg-red-500/10 text-red-600 dark:text-red-400"
+              : undefined
+          }
         />
         <StatTile icon={Percent} label="% Utilized" value={formatPct(utilizedPct)} />
       </div>
