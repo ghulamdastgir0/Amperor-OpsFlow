@@ -44,6 +44,12 @@ export interface User {
   slackUserId?: string | null;
   isActive: boolean;
   employeeRoles?: EmployeeRole[];
+  // The specific person who is this employee's team lead — a personal
+  // reporting relationship, distinct from the Role.TEAM_LEAD access tier and
+  // from any "Team Lead" EmployeeRole catalog tag. See
+  // EmployeeRolesService.notifyTeamLead.
+  teamLeadId?: string | null;
+  teamLead?: { id: string; name: string } | null;
   // Only ever populated on GET /users/me — never a real password.
   hasPassword?: boolean;
 }

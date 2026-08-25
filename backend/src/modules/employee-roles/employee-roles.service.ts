@@ -447,6 +447,48 @@ export class EmployeeRolesService {
     }
   }
 
+  // Best-effort, LLM-triggered — pings the requester's personally assigned
+  // team lead (User.teamLeadId), independent of the EmployeeRole catalog.
+  // Called whenever file_request sets notifyTeamLead: true (always for a
+  // leave/remote-work request, alongside HR; also for any other query
+  // clearly meant for "my team lead"). Deliberately separate from
+  // notifyRoleForRequest — a personal 1:1 relationship, not a shared tag
+  // that may have zero or many holders.
+  async notifyTeamLead(
+    tenantId: string,
+    requesterId: string,
+    summary: string | undefined,
+  ): Promise<{ delivered: boolean }> {
+    try {
+      const requester = await this.prisma.user.findUnique({
+        where: { id: requesterId },
+        select: {
+          name: true,
+          teamLead: { select: { name: true, isActive: true, slackUserId: true } },
+        },
+      });
+      const teamLead = requester?.teamLead;
+      if (!teamLead || !teamLead.isActive || !teamLead.slackUserId) {
+        return { delivered: false };
+      }
+
+      const botToken = await this.resolveBotToken(tenantId);
+      if (!botToken) return { delivered: false };
+
+      const requesterName = requester?.name ?? 'An employee';
+      const text = summary
+        ? `${requesterName} ${summary}`
+        : `${requesterName} has a request/query for you.`;
+      await this.deliverToAll(botToken, [teamLead], text);
+      return { delivered: true };
+    } catch (error) {
+      this.logger.warn(
+        `Failed to notify team lead for requester ${requesterId}: ${(error as Error).message}`,
+      );
+      return { delivered: false };
+    }
+  }
+
   // Which of these users currently has an approved leave request covering
   // today — see Request.leaveStartDate/leaveEndDate. Only leave requests
   // ever populate those columns, so no separate intentType filter is needed.

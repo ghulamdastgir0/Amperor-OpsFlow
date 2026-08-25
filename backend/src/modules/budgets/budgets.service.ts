@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { RequestStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
@@ -65,6 +65,19 @@ export class BudgetsService {
     });
 
     return budget;
+  }
+
+  // Deletes a department from the catalog — mirrors EmployeeRolesService.remove.
+  // Budget.departmentScope is referenced elsewhere (Request.budgetDepartment,
+  // User.department, FinanceDelegation.departmentScope) by plain string, not
+  // FK, so removing the Budget row doesn't touch any of that history — it
+  // just stops the name showing up as an option going forward.
+  async remove(tenantId: string, id: string) {
+    const budget = await this.prisma.budget.findFirst({
+      where: { id, tenantId },
+    });
+    if (!budget) throw new NotFoundException('Department not found');
+    await this.prisma.budget.delete({ where: { id } });
   }
 
   // Used by RequestsService to block/warn on an approval that would over-commit

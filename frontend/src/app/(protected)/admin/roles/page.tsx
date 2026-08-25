@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { AlertCircle, Megaphone, Pencil, Plus, Tag, UserPlus, Wand2, X } from "lucide-react";
-import { employeeRolesApi, usersApi } from "@/lib/api";
+import { budgetsApi, employeeRolesApi, usersApi } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import type { EmployeeRole, Role, User } from "@/lib/types";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -285,7 +285,13 @@ function RoleCatalog({
   );
 }
 
-function AddEmployeeForm({ onCreated }: { onCreated: (user: User) => void }) {
+function AddEmployeeForm({
+  onCreated,
+  departmentOptions,
+}: {
+  onCreated: (user: User) => void;
+  departmentOptions: string[];
+}) {
   const toast = useToast();
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
@@ -368,13 +374,14 @@ function AddEmployeeForm({ onCreated }: { onCreated: (user: User) => void }) {
                 </option>
               ))}
             </Select>
-            <Input
-              label="Department"
-              hint="Optional"
-              placeholder="e.g. Engineering"
-              value={department}
-              onChange={(e) => setDepartment(e.target.value)}
-            />
+            <Select label="Department" hint="Optional" value={department} onChange={(e) => setDepartment(e.target.value)}>
+              <option value="">No department</option>
+              {departmentOptions.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </Select>
             <Button type="submit" isLoading={isCreating} className="w-fit self-end">
               {isCreating ? "Adding…" : "Add"}
             </Button>
@@ -439,19 +446,23 @@ function AddRoleTag({
 function EmployeeAssignments({
   users,
   roles,
+  departmentOptions,
   onUserCreated,
   onUserRolesUpdated,
   onUserRoleChanged,
   onUserDepartmentChanged,
+  onUserTeamLeadChanged,
   onUserBlockChanged,
   onUserRemoved,
 }: {
   users: User[];
   roles: EmployeeRole[];
+  departmentOptions: string[];
   onUserCreated: (user: User) => void;
   onUserRolesUpdated: (userId: string, roles: EmployeeRole[]) => void;
   onUserRoleChanged: (userId: string, role: Role) => void;
   onUserDepartmentChanged: (userId: string, department: string | null) => void;
+  onUserTeamLeadChanged: (userId: string, teamLead: { id: string; name: string } | null) => void;
   onUserBlockChanged: (user: User) => void;
   onUserRemoved: (userId: string) => void;
 }) {
@@ -461,6 +472,7 @@ function EmployeeAssignments({
   const [isChangingRole, setIsChangingRole] = useState(false);
   const [pendingTagChangeUserId, setPendingTagChangeUserId] = useState<string | null>(null);
   const [pendingDepartmentUserId, setPendingDepartmentUserId] = useState<string | null>(null);
+  const [pendingTeamLeadUserId, setPendingTeamLeadUserId] = useState<string | null>(null);
   const [pendingBlockToggle, setPendingBlockToggle] = useState<User | null>(null);
   const [isTogglingBlock, setIsTogglingBlock] = useState(false);
   const [pendingRemove, setPendingRemove] = useState<User | null>(null);
@@ -491,16 +503,28 @@ function EmployeeAssignments({
   }
 
   async function applyDepartmentChange(user: User, department: string) {
-    const trimmed = department.trim();
-    if (trimmed === (user.department ?? "")) return;
+    if (department === (user.department ?? "")) return;
     setPendingDepartmentUserId(user.id);
     try {
-      const updated = await usersApi.updateUserDepartment(user.id, trimmed);
+      const updated = await usersApi.updateUserDepartment(user.id, department);
       onUserDepartmentChanged(user.id, updated.department ?? null);
     } catch {
       toast.error("Could not update this employee's department.");
     } finally {
       setPendingDepartmentUserId(null);
+    }
+  }
+
+  async function applyTeamLeadChange(user: User, teamLeadId: string) {
+    if (teamLeadId === (user.teamLeadId ?? "")) return;
+    setPendingTeamLeadUserId(user.id);
+    try {
+      const updated = await usersApi.updateUserTeamLead(user.id, teamLeadId || null);
+      onUserTeamLeadChanged(user.id, updated.teamLead ?? null);
+    } catch {
+      toast.error("Could not update this employee's team lead.");
+    } finally {
+      setPendingTeamLeadUserId(null);
     }
   }
 
@@ -562,7 +586,7 @@ function EmployeeAssignments({
     <Card>
       <h2 className="font-heading mb-4 text-sm font-semibold text-foreground">Employees</h2>
 
-      <AddEmployeeForm onCreated={onUserCreated} />
+      <AddEmployeeForm onCreated={onUserCreated} departmentOptions={departmentOptions} />
 
       {users.length === 0 ? (
         <p className="text-sm text-muted">No employees yet.</p>
@@ -593,19 +617,40 @@ function EmployeeAssignments({
                   ))}
                 </select>
 
-                <input
-                  key={u.id + (u.department ?? "")}
-                  type="text"
-                  defaultValue={u.department ?? ""}
+                <select
+                  value={u.department ?? ""}
                   disabled={pendingDepartmentUserId === u.id}
-                  onBlur={(e) => applyDepartmentChange(u, e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") e.currentTarget.blur();
-                  }}
-                  placeholder="No department"
+                  onChange={(e) => applyDepartmentChange(u, e.target.value)}
                   title="Department — used to route expense approvals to the right delegate"
-                  className="w-32 rounded-full border border-border bg-surface px-2.5 py-1 text-xs text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50"
-                />
+                  className="rounded-full border border-border bg-surface px-2.5 py-1 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50"
+                >
+                  <option value="">No department</option>
+                  {(u.department && !departmentOptions.includes(u.department)
+                    ? [u.department, ...departmentOptions]
+                    : departmentOptions
+                  ).map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={u.teamLeadId ?? ""}
+                  disabled={pendingTeamLeadUserId === u.id}
+                  onChange={(e) => applyTeamLeadChange(u, e.target.value)}
+                  title="Team lead — notified directly on this employee's leave requests and 'ask my team lead' queries"
+                  className="rounded-full border border-border bg-surface px-2.5 py-1 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50"
+                >
+                  <option value="">No team lead</option>
+                  {users
+                    .filter((candidate) => candidate.id !== u.id)
+                    .map((candidate) => (
+                      <option key={candidate.id} value={candidate.id}>
+                        {candidate.name}
+                      </option>
+                    ))}
+                </select>
 
                 {(u.employeeRoles ?? []).map((r) => (
                   <span
@@ -860,6 +905,7 @@ function BroadcastComposer({
 export default function EmployeeRolesPage() {
   const [roles, setRoles] = useState<EmployeeRole[] | null>(null);
   const [users, setUsers] = useState<User[] | null>(null);
+  const [departmentOptions, setDepartmentOptions] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -872,6 +918,9 @@ export default function EmployeeRolesPage() {
   }, []);
 
   useEffect(load, [load]);
+  useEffect(() => {
+    budgetsApi.listDepartmentNames().then(setDepartmentOptions).catch(() => {});
+  }, []);
 
   function handleUserRolesUpdated(userId: string, updatedRoles: EmployeeRole[]) {
     setUsers((prev) => prev?.map((u) => (u.id === userId ? { ...u, employeeRoles: updatedRoles } : u)) ?? null);
@@ -905,6 +954,13 @@ export default function EmployeeRolesPage() {
 
   function handleUserDepartmentChanged(userId: string, department: string | null) {
     setUsers((prev) => prev?.map((u) => (u.id === userId ? { ...u, department } : u)) ?? null);
+  }
+
+  function handleUserTeamLeadChanged(userId: string, teamLead: { id: string; name: string } | null) {
+    setUsers(
+      (prev) =>
+        prev?.map((u) => (u.id === userId ? { ...u, teamLeadId: teamLead?.id ?? null, teamLead } : u)) ?? null,
+    );
   }
 
   if (!roles || !users) {
@@ -966,10 +1022,12 @@ export default function EmployeeRolesPage() {
         <EmployeeAssignments
           users={users}
           roles={roles}
+          departmentOptions={departmentOptions}
           onUserCreated={handleUserCreated}
           onUserRolesUpdated={handleUserRolesUpdated}
           onUserRoleChanged={handleUserRoleChanged}
           onUserDepartmentChanged={handleUserDepartmentChanged}
+          onUserTeamLeadChanged={handleUserTeamLeadChanged}
           onUserBlockChanged={(updated) =>
             setUsers((prev) => prev?.map((u) => (u.id === updated.id ? { ...u, isActive: updated.isActive } : u)) ?? null)
           }

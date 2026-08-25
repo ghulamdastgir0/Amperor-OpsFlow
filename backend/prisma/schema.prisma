@@ -120,10 +120,19 @@ model User {
   department  String?
   slackUserId String?  @map("slack_user_id")
   isActive    Boolean  @default(true) @map("is_active")
+  // The specific person who is this employee's team lead — distinct from
+  // the fixed Role.TEAM_LEAD enum value (permission tier) and from the
+  // EmployeeRole "Team Lead" catalog tag (a shared, unowned label). This is
+  // a real 1:1 reporting relationship, admin-assigned, so a leave request or
+  // a "ask my team lead" query can notify the actual person rather than
+  // whoever happens to hold a generic tag. See
+  // EmployeeRolesService.notifyTeamLead.
+  teamLeadId  String?  @map("team_lead_id") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  teamLead User?  @relation("TeamLeadOf", fields: [teamLeadId], references: [id], onDelete: SetNull)
 
   requestsMade        Request[]           @relation("RequestRequester")
   delegationsGranted  FinanceDelegation[] @relation("DelegationGrantedBy")
@@ -133,6 +142,7 @@ model User {
   auditLogs           AuditLog[]
   employeeRoles       UserEmployeeRole[]
   sentBroadcasts      RoleBroadcast[]
+  teamMembers         User[]              @relation("TeamLeadOf")
 
   @@unique([tenantId, email])
   @@map("users")

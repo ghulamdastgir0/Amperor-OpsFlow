@@ -17,6 +17,7 @@ import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { UpdateUserDepartmentDto } from './dto/update-user-department.dto';
+import { UpdateUserTeamLeadDto } from './dto/update-user-team-lead.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 
@@ -93,6 +94,16 @@ export class UsersController {
     @Body() dto: UpdateUserDepartmentDto,
   ) {
     return this.usersService.updateDepartment(user.tenantId, id, dto);
+  }
+
+  @Patch(':id/team-lead')
+  @Roles(Role.SYSTEM_ADMIN)
+  updateTeamLead(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateUserTeamLeadDto,
+  ) {
+    return this.usersService.setTeamLead(user.tenantId, id, dto);
   }
 
   // Immediate cutoff — see JwtAuthGuard, which re-checks isActive on every

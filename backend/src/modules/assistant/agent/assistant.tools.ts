@@ -132,6 +132,7 @@ export function buildAssistantTools(
         leaveStartDate?: string;
         leaveEndDate?: string;
         routingSummary?: string;
+        notifyTeamLead?: boolean;
       },
       config: RunnableConfig,
     ) => {
@@ -161,6 +162,17 @@ export function buildAssistantTools(
             rawPrompt,
             summary: input.routingSummary,
           },
+        );
+      }
+
+      if (input.notifyTeamLead) {
+        // Independent of routeToRoleName — a leave request notifies BOTH
+        // HR (via routeToRoleName above) and the requester's personal team
+        // lead here; a plain "ask my team lead" query notifies only this.
+        await employeeRoles.notifyTeamLead(
+          tenantId,
+          userId,
+          input.routingSummary,
         );
       }
 
@@ -217,13 +229,26 @@ export function buildAssistantTools(
           .string()
           .optional()
           .describe(
-            'Required whenever routeToRoleName is set: a short, natural continuation sentence describing the ' +
-              'issue/ask for the role-holder to read — written to follow the requester\'s name, e.g. for a WiFi ' +
-              'complaint: "is having trouble with the WiFi and would like it looked into." Rewrite/summarize the ' +
-              'request in your own words; never just quote the raw message verbatim. Do NOT include the ' +
-              "requester's name (added automatically), any internal ID/reference, or any mention of approval " +
-              'status ("no approval needed", "requires approval", etc.) — that\'s not the reader\'s concern here, ' +
-              'just tell them what\'s needed.',
+            'Required whenever routeToRoleName is set OR notifyTeamLead is true: a short, natural continuation ' +
+              'sentence describing the issue/ask for the reader — written to follow the requester\'s name, e.g. ' +
+              'for a WiFi complaint: "is having trouble with the WiFi and would like it looked into." ' +
+              'Rewrite/summarize the request in your own words; never just quote the raw message verbatim. Do ' +
+              "NOT include the requester's name (added automatically), any internal ID/reference, or any " +
+              'mention of approval status ("no approval needed", "requires approval", etc.) — that\'s not the ' +
+              "reader's concern here, just tell them what's needed. Used for both routeToRoleName's and " +
+              'notifyTeamLead\'s notification when both are set.',
+          ),
+        notifyTeamLead: z
+          .boolean()
+          .optional()
+          .describe(
+            "True to notify the requester's personally assigned team lead directly — a real 1:1 reporting " +
+              "relationship (see their profile), NOT the same as routing to a generic 'Team Lead' EMPLOYEE " +
+              'ROLES entry if one exists. ALWAYS true for a leave request or a remote/work-from-home request — ' +
+              'set alongside routeToRoleName to HR (if an HR role exists) so BOTH the team lead and HR are ' +
+              'notified, not just one. Also true for any other query clearly meant for "my team lead" (e.g. ' +
+              '"ask my team lead about project X") — in that case routeToRoleName can be omitted if no ' +
+              'catalog role fits. Omit/false for anything not meant for their manager.',
           ),
       }),
     },

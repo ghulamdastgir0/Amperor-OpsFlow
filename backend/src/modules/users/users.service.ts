@@ -12,6 +12,7 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { UpdateUserDepartmentDto } from './dto/update-user-department.dto';
+import { UpdateUserTeamLeadDto } from './dto/update-user-team-lead.dto';
 
 @Injectable()
 export class UsersService {
@@ -45,7 +46,10 @@ export class UsersService {
   async findAll(tenantId: string) {
     const users = await this.prisma.user.findMany({
       where: { tenantId },
-      include: { employeeRoles: { include: { employeeRole: true } } },
+      include: {
+        employeeRoles: { include: { employeeRole: true } },
+        teamLead: { select: { id: true, name: true } },
+      },
     });
     return users.map((u) => {
       const { employeeRoles, ...rest } = u;
@@ -70,7 +74,10 @@ export class UsersService {
   async getProfile(tenantId: string, userId: string) {
     const user = await this.prisma.user.findFirst({
       where: { id: userId, tenantId },
-      include: { employeeRoles: { include: { employeeRole: true } } },
+      include: {
+        employeeRoles: { include: { employeeRole: true } },
+        teamLead: { select: { id: true, name: true } },
+      },
     });
     if (!user) throw new NotFoundException('User not found');
     const { employeeRoles, ...rest } = user;
@@ -210,6 +217,40 @@ export class UsersService {
     const updated = await this.prisma.user.update({
       where: { id: targetUserId },
       data: { department: dto.department || null },
+    });
+    return this.sanitize(updated);
+  }
+
+  // Assigns (or clears) the specific person who is this employee's team
+  // lead — the personal reporting relationship EmployeeRolesService.
+  // notifyTeamLead pings directly for leave requests and "ask my team lead"
+  // queries, instead of relying on a shared EmployeeRole tag.
+  async setTeamLead(
+    tenantId: string,
+    targetUserId: string,
+    dto: UpdateUserTeamLeadDto,
+  ) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: targetUserId, tenantId },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    if (dto.teamLeadId) {
+      if (dto.teamLeadId === targetUserId) {
+        throw new BadRequestException("An employee can't be their own team lead");
+      }
+      const teamLead = await this.prisma.user.findFirst({
+        where: { id: dto.teamLeadId, tenantId },
+      });
+      if (!teamLead) {
+        throw new BadRequestException('That team lead was not found in this tenant');
+      }
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: targetUserId },
+      data: { teamLeadId: dto.teamLeadId ?? null },
+      include: { teamLead: { select: { id: true, name: true } } },
     });
     return this.sanitize(updated);
   }

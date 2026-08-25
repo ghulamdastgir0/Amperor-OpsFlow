@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -44,6 +44,12 @@ export class BudgetsController {
   @Roles()
   listDepartmentNames(@CurrentUser() user: AuthenticatedUser) {
     return this.budgetsService.listDepartmentNames(user.tenantId);
+  }
+
+  @Delete(':id')
+  @Roles(Role.SYSTEM_ADMIN)
+  remove(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.budgetsService.remove(user.tenantId, id);
   }
 
   @Get('transactions')

@@ -21,6 +21,10 @@ export async function listBudgets() {
   return data.data;
 }
 
+export async function deleteBudget(id: string) {
+  await apiClient.delete(`/budgets/${id}`);
+}
+
 // Just category names — open to any authenticated user (unlike listBudgets,
 // which is finance-role-gated) so any employee can pick their department
 // from the same list Finance uses, keeping User.department and

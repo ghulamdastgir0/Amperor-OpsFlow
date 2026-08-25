@@ -1,4 +1,4 @@
-import { Wallet, TrendingDown, PiggyBank, Percent, Clock } from "lucide-react";
+import { Wallet, TrendingDown, PiggyBank, Percent, Clock, X } from "lucide-react";
 import type { BudgetWithSpend, FinanceDashboard } from "@/lib/types";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -53,7 +53,13 @@ function StatTile({
   );
 }
 
-function DepartmentCard({ budget }: { budget: BudgetWithSpend }) {
+function DepartmentCard({
+  budget,
+  onDelete,
+}: {
+  budget: BudgetWithSpend;
+  onDelete?: () => void;
+}) {
   const allocated = Number(budget.allocatedAmount);
   const spentPct = allocated > 0 ? (budget.spent / allocated) * 100 : 0;
   const reservedPct = allocated > 0 ? (budget.reserved / allocated) * 100 : 0;
@@ -66,9 +72,21 @@ function DepartmentCard({ budget }: { budget: BudgetWithSpend }) {
 
   return (
     <Card>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <span className="text-sm font-medium text-foreground">{budget.departmentScope}</span>
-        <span className={cn("text-xs font-medium", health.text)}>{formatPct(spentPct + reservedPct)} committed</span>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className={cn("text-xs font-medium", health.text)}>{formatPct(spentPct + reservedPct)} committed</span>
+          {onDelete && (
+            <button
+              type="button"
+              onClick={onDelete}
+              title="Remove this department"
+              className="rounded-full p-0.5 text-muted hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10"
+            >
+              <X className="size-3.5" aria-hidden />
+            </button>
+          )}
+        </div>
       </div>
       <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-white/10">
         <div className={cn("h-full", health.bar)} style={{ width: `${spentBarPct}%` }} />
@@ -91,7 +109,13 @@ function DepartmentCard({ budget }: { budget: BudgetWithSpend }) {
   );
 }
 
-export function BudgetSummary({ dashboard }: { dashboard: FinanceDashboard }) {
+export function BudgetSummary({
+  dashboard,
+  onDeleteBudget,
+}: {
+  dashboard: FinanceDashboard;
+  onDeleteBudget?: (budget: BudgetWithSpend) => void;
+}) {
   const utilizedPct =
     dashboard.totals.allocated > 0
       ? (dashboard.totals.spent / dashboard.totals.allocated) * 100
@@ -137,7 +161,11 @@ export function BudgetSummary({ dashboard }: { dashboard: FinanceDashboard }) {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {dashboard.budgets.map((budget) => (
-            <DepartmentCard key={budget.id} budget={budget} />
+            <DepartmentCard
+              key={budget.id}
+              budget={budget}
+              onDelete={onDeleteBudget ? () => onDeleteBudget(budget) : undefined}
+            />
           ))}
         </div>
       )}
