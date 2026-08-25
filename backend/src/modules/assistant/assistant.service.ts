@@ -19,6 +19,7 @@ import { RequestsService } from '../requests/requests.service';
 import { PoliciesService } from '../policies/policies.service';
 import { EmployeeRolesService } from '../employee-roles/employee-roles.service';
 import { BudgetsService } from '../budgets/budgets.service';
+import { UsersService } from '../users/users.service';
 import { RESTRICTED_DOC_VISIBLE_ROLES } from '../policies/policies.service';
 import { buildAssistantTools } from './agent/assistant.tools';
 import { buildAssistantGraph } from './agent/assistant.graph';
@@ -108,6 +109,10 @@ TOOLS
   but not sent to the requester yet. Rewrite their update into a short, natural note the requester will
   actually read (same spirit as routingSummary) — don't just quote them. If the tool comes back ambiguous
   (multiple open items could match), ask which one they mean instead of guessing.
+- set_my_leave_status: call this when the user tells you their OWN availability, not a formal leave
+  request — "I'm going on leave," "mark me away," "I'm back," "set me as active." This is a live on/off
+  status, not the leave request flow (which needs dates and goes through file_request/HR). Confirm briefly
+  once done — no approval is ever needed for this, it's just a status flip.
 - If none of the above apply, just respond in plain text — either answering the question or asking a
   short clarifying question. You have the conversation history, so a clarifying question you asked can be
   answered on the next turn instead of you asking it again.
@@ -235,6 +240,7 @@ export class AssistantService {
     private readonly policies: PoliciesService,
     private readonly employeeRoles: EmployeeRolesService,
     private readonly budgets: BudgetsService,
+    private readonly users: UsersService,
     config: ConfigService,
   ) {
     const model = new ChatGoogleGenerativeAI({
@@ -247,6 +253,7 @@ export class AssistantService {
       this.requests,
       this.employeeRoles,
       this.budgets,
+      this.users,
     );
     this.graph = buildAssistantGraph(model, tools);
   }

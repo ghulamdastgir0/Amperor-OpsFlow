@@ -379,22 +379,23 @@ export class EmployeeRolesService {
           employeeRoles: { some: { employeeRoleId: role.id } },
         },
       });
-      // Anyone holding this role but currently on approved leave is skipped
-      // — falls through to the SYSTEM_ADMIN fallback below exactly like
-      // "nobody holds this role" already does, rather than paging someone
-      // who isn't there to see it. Applies to every role the same way (HR,
-      // IT, or any future one) since this runs before the fallback check
-      // regardless of which role was targeted. The requester themselves is
-      // also excluded even if they hold this role — deciding your own
-      // request is a conflict of interest (RequestsService.decideRoleStage
-      // blocks it server-side too; this just stops them being pinged about
-      // it in the first place).
-      const onLeaveIds = await this.getUsersOnLeave(
+      // Anyone holding this role but currently unavailable (manually marked
+      // on leave, or on an approved formal leave request covering today) is
+      // skipped — falls through to the SYSTEM_ADMIN fallback below exactly
+      // like "nobody holds this role" already does, rather than paging
+      // someone who isn't there to see it. Applies to every role the same
+      // way (HR, IT, or any future one) since this runs before the fallback
+      // check regardless of which role was targeted. The requester
+      // themselves is also excluded even if they hold this role — deciding
+      // your own request is a conflict of interest
+      // (RequestsService.decideRoleStage blocks it server-side too; this
+      // just stops them being pinged about it in the first place).
+      const unavailableIds = await this.getUnavailableUserIds(
         tenantId,
-        roleHolders.map((u) => u.id),
+        roleHolders,
       );
       const recipients = roleHolders.filter(
-        (u) => !onLeaveIds.has(u.id) && u.id !== input.requesterId,
+        (u) => !unavailableIds.has(u.id) && u.id !== input.requesterId,
       );
 
       const target =
@@ -489,27 +490,35 @@ export class EmployeeRolesService {
     }
   }
 
-  // Which of these users currently has an approved leave request covering
-  // today — see Request.leaveStartDate/leaveEndDate. Only leave requests
-  // ever populate those columns, so no separate intentType filter is needed.
-  private async getUsersOnLeave(
+  // Which of these users are currently unavailable to have a request routed
+  // to them — either manually marked on leave (User.isOnLeave, toggled by
+  // themselves or a SYSTEM_ADMIN), or on an approved formal leave request
+  // covering today (Request.leaveStartDate/leaveEndDate — only leave
+  // requests ever populate those columns, so no separate intentType filter
+  // is needed). Either one is enough to count as unavailable.
+  private async getUnavailableUserIds(
     tenantId: string,
-    userIds: string[],
+    users: { id: string; isOnLeave: boolean }[],
   ): Promise<Set<string>> {
-    if (userIds.length === 0) return new Set();
+    const manuallyOnLeave = users.filter((u) => u.isOnLeave).map((u) => u.id);
+    if (users.length === 0) return new Set(manuallyOnLeave);
+
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
-    const onLeave = await this.prisma.request.findMany({
+    const onLeaveRequests = await this.prisma.request.findMany({
       where: {
         tenantId,
-        requesterId: { in: userIds },
+        requesterId: { in: users.map((u) => u.id) },
         status: RequestStatus.APPROVED,
         leaveStartDate: { lte: today },
         leaveEndDate: { gte: today },
       },
       select: { requesterId: true },
     });
-    return new Set(onLeave.map((r) => r.requesterId));
+    return new Set([
+      ...manuallyOnLeave,
+      ...onLeaveRequests.map((r) => r.requesterId),
+    ]);
   }
 
   private async resolveBotToken(tenantId: string): Promise<string | undefined> {

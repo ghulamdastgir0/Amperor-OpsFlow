@@ -18,6 +18,7 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { UpdateUserDepartmentDto } from './dto/update-user-department.dto';
 import { UpdateUserTeamLeadDto } from './dto/update-user-team-lead.dto';
+import { UpdateUserLeaveStatusDto } from './dto/update-user-leave-status.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 
@@ -66,6 +67,17 @@ export class UsersController {
     return this.usersService.unlinkSlack(user.tenantId, user.userId);
   }
 
+  // Self-service — any employee can mark themselves on leave / back, not
+  // just SYSTEM_ADMIN (see :id/leave-status below for admin setting it on
+  // someone else, e.g. while they're away and can't do it themselves).
+  @Patch('me/leave-status')
+  updateMyLeaveStatus(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: UpdateUserLeaveStatusDto,
+  ) {
+    return this.usersService.setOnLeave(user.tenantId, user.userId, dto);
+  }
+
   @Get(':id')
   findOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.usersService.findOne(user.tenantId, id);
@@ -104,6 +116,16 @@ export class UsersController {
     @Body() dto: UpdateUserTeamLeadDto,
   ) {
     return this.usersService.setTeamLead(user.tenantId, id, dto);
+  }
+
+  @Patch(':id/leave-status')
+  @Roles(Role.SYSTEM_ADMIN)
+  updateLeaveStatus(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateUserLeaveStatusDto,
+  ) {
+    return this.usersService.setOnLeave(user.tenantId, id, dto);
   }
 
   // Immediate cutoff — see JwtAuthGuard, which re-checks isActive on every

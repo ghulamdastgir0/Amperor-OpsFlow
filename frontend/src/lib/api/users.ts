@@ -38,6 +38,20 @@ export async function updateUserTeamLead(userId: string, teamLeadId: string | nu
   return data.data;
 }
 
+export async function updateUserLeaveStatus(userId: string, isOnLeave: boolean) {
+  const { data } = await apiClient.patch<ApiEnvelope<User>>(`/users/${userId}/leave-status`, {
+    isOnLeave,
+  });
+  return data.data;
+}
+
+export async function updateMyLeaveStatus(isOnLeave: boolean) {
+  const { data } = await apiClient.patch<ApiEnvelope<User>>('/users/me/leave-status', {
+    isOnLeave,
+  });
+  return data.data;
+}
+
 export async function getMyProfile() {
   const { data } = await apiClient.get<ApiEnvelope<User>>('/users/me');
   return data.data;

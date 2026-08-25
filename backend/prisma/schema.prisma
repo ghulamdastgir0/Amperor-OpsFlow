@@ -126,6 +126,14 @@ model User {
   department  String?
   slackUserId String?  @map("slack_user_id")
   isActive    Boolean  @default(true) @map("is_active")
+  // Manually toggled by the employee themselves or a SYSTEM_ADMIN — distinct
+  // from isActive (account blocked/enabled). Someone on leave keeps full
+  // account access; they just shouldn't be routed requests while away. See
+  // EmployeeRolesService.getUnavailableUserIds, which excludes them (along
+  // with anyone on an approved formal leave request) from role-routing, so
+  // requests fall through to the SYSTEM_ADMIN fallback instead of sitting
+  // unseen.
+  isOnLeave   Boolean  @default(false) @map("is_on_leave")
   // The specific person who is this employee's team lead — distinct from
   // the fixed Role.TEAM_LEAD enum value (permission tier) and from the
   // EmployeeRole "Team Lead" catalog tag (a shared, unowned label). This is

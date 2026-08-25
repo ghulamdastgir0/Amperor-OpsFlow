@@ -46,6 +46,10 @@ export interface User {
   department?: string | null;
   slackUserId?: string | null;
   isActive: boolean;
+  // Manually toggled by the employee themselves or a SYSTEM_ADMIN — distinct
+  // from isActive (account blocked/enabled). Excludes them from role-routing
+  // while true, same as an approved formal leave request would.
+  isOnLeave: boolean;
   employeeRoles?: EmployeeRole[];
   // The specific person who is this employee's team lead — a personal
   // reporting relationship, distinct from the Role.TEAM_LEAD access tier and

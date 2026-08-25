@@ -6,6 +6,7 @@ import { PoliciesService } from '../../policies/policies.service';
 import { RequestsService } from '../../requests/requests.service';
 import { EmployeeRolesService } from '../../employee-roles/employee-roles.service';
 import { BudgetsService } from '../../budgets/budgets.service';
+import { UsersService } from '../../users/users.service';
 
 // RBAC tier for budget visibility through the assistant: System Admin gets
 // everything, Finance Approver gets finance access plus everything an
@@ -59,6 +60,7 @@ export function buildAssistantTools(
   requests: RequestsService,
   employeeRoles: EmployeeRolesService,
   budgets: BudgetsService,
+  users: UsersService,
 ) {
   const searchPolicy = tool(
     async (input: { query: string }, config: RunnableConfig) => {
@@ -433,6 +435,28 @@ export function buildAssistantTools(
     },
   );
 
+  const setMyLeaveStatus = tool(
+    async (input: { isOnLeave: boolean }, config: RunnableConfig) => {
+      const { tenantId, userId } = getContext(config);
+      await users.setOnLeave(tenantId, userId, {
+        isOnLeave: input.isOnLeave,
+      });
+      return JSON.stringify({ isOnLeave: input.isOnLeave });
+    },
+    {
+      name: 'set_my_leave_status',
+      description:
+        'Mark the current user as on leave/away, or back/active — call this when they say something like "I\'m going on leave," "mark me as away," "I\'m back," or "set me as active" as a status update about THEMSELVES (not a formal leave request with dates — that\'s file_request). This affects request routing: while someone is marked on leave, requests routed to a role they hold skip them and go to a system admin instead, so their team isn\'t left waiting on someone who isn\'t there.',
+      schema: z.object({
+        isOnLeave: z
+          .boolean()
+          .describe(
+            'true to mark them on leave/away, false to mark them back/active.',
+          ),
+      }),
+    },
+  );
+
   return [
     searchPolicy,
     findSimilarOpenRequests,
@@ -441,5 +465,6 @@ export function buildAssistantTools(
     getBudgetSummary,
     getMyRequestStatus,
     reportRequestProgress,
+    setMyLeaveStatus,
   ];
 }

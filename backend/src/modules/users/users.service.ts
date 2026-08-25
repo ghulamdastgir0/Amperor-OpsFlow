@@ -13,6 +13,7 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { UpdateUserDepartmentDto } from './dto/update-user-department.dto';
 import { UpdateUserTeamLeadDto } from './dto/update-user-team-lead.dto';
+import { UpdateUserLeaveStatusDto } from './dto/update-user-leave-status.dto';
 
 @Injectable()
 export class UsersService {
@@ -251,6 +252,28 @@ export class UsersService {
       where: { id: targetUserId },
       data: { teamLeadId: dto.teamLeadId ?? null },
       include: { teamLead: { select: { id: true, name: true } } },
+    });
+    return this.sanitize(updated);
+  }
+
+  // Reusable by both the SYSTEM_ADMIN-on-anyone route and the self-service
+  // "me" route — no self-check needed (unlike setActive/updateRole, there's
+  // no reason to stop someone marking their own status), so both controller
+  // routes call this directly. See EmployeeRolesService.getUnavailableUserIds
+  // for how this actually affects routing.
+  async setOnLeave(
+    tenantId: string,
+    targetUserId: string,
+    dto: UpdateUserLeaveStatusDto,
+  ) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: targetUserId, tenantId },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const updated = await this.prisma.user.update({
+      where: { id: targetUserId },
+      data: { isOnLeave: dto.isOnLeave },
     });
     return this.sanitize(updated);
   }

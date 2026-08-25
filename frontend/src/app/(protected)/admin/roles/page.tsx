@@ -452,6 +452,7 @@ function EmployeeAssignments({
   onUserRoleChanged,
   onUserDepartmentChanged,
   onUserTeamLeadChanged,
+  onUserLeaveChanged,
   onUserBlockChanged,
   onUserRemoved,
 }: {
@@ -463,6 +464,7 @@ function EmployeeAssignments({
   onUserRoleChanged: (userId: string, role: Role) => void;
   onUserDepartmentChanged: (userId: string, department: string | null) => void;
   onUserTeamLeadChanged: (userId: string, teamLead: { id: string; name: string } | null) => void;
+  onUserLeaveChanged: (user: User) => void;
   onUserBlockChanged: (user: User) => void;
   onUserRemoved: (userId: string) => void;
 }) {
@@ -473,6 +475,7 @@ function EmployeeAssignments({
   const [pendingTagChangeUserId, setPendingTagChangeUserId] = useState<string | null>(null);
   const [pendingDepartmentUserId, setPendingDepartmentUserId] = useState<string | null>(null);
   const [pendingTeamLeadUserId, setPendingTeamLeadUserId] = useState<string | null>(null);
+  const [pendingLeaveUserId, setPendingLeaveUserId] = useState<string | null>(null);
   const [pendingBlockToggle, setPendingBlockToggle] = useState<User | null>(null);
   const [isTogglingBlock, setIsTogglingBlock] = useState(false);
   const [pendingRemove, setPendingRemove] = useState<User | null>(null);
@@ -525,6 +528,19 @@ function EmployeeAssignments({
       toast.error("Could not update this employee's team lead.");
     } finally {
       setPendingTeamLeadUserId(null);
+    }
+  }
+
+  async function applyLeaveChange(user: User, isOnLeave: boolean) {
+    setPendingLeaveUserId(user.id);
+    try {
+      const updated = await usersApi.updateUserLeaveStatus(user.id, isOnLeave);
+      onUserLeaveChanged(updated);
+      toast.success(isOnLeave ? `${user.name} marked on leave.` : `${user.name} marked active.`);
+    } catch {
+      toast.error("Could not update this employee's leave status.");
+    } finally {
+      setPendingLeaveUserId(null);
     }
   }
 
@@ -673,25 +689,37 @@ function EmployeeAssignments({
                 <AddRoleTag user={u} roles={roles} onAdd={(roleId) => addTag(u, roleId)} />
               </div>
 
-              {u.id !== currentUser?.userId && (
-                <div className="flex shrink-0 items-center gap-3 sm:ml-auto">
-                  <Badge tone={u.isActive ? "green" : "slate"}>{u.isActive ? "Active" : "Inactive"}</Badge>
-                  <button
-                    type="button"
-                    className="text-xs font-medium text-muted hover:text-foreground"
-                    onClick={() => setPendingBlockToggle(u)}
-                  >
-                    {u.isActive ? "Block" : "Unblock"}
-                  </button>
-                  <button
-                    type="button"
-                    className="text-xs font-medium text-red-500 hover:text-red-400"
-                    onClick={() => setPendingRemove(u)}
-                  >
-                    Remove
-                  </button>
-                </div>
-              )}
+              <div className="flex shrink-0 items-center gap-3 sm:ml-auto">
+                <button
+                  type="button"
+                  disabled={pendingLeaveUserId === u.id}
+                  onClick={() => applyLeaveChange(u, !u.isOnLeave)}
+                  title="Toggle on-leave status — while on leave, requests routed to a role they hold are rerouted to a system admin instead"
+                  className="disabled:opacity-50"
+                >
+                  <Badge tone={u.isOnLeave ? "amber" : "green"}>{u.isOnLeave ? "On Leave" : "Available"}</Badge>
+                </button>
+
+                {u.id !== currentUser?.userId && (
+                  <>
+                    <Badge tone={u.isActive ? "green" : "slate"}>{u.isActive ? "Active" : "Inactive"}</Badge>
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-muted hover:text-foreground"
+                      onClick={() => setPendingBlockToggle(u)}
+                    >
+                      {u.isActive ? "Block" : "Unblock"}
+                    </button>
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-red-500 hover:text-red-400"
+                      onClick={() => setPendingRemove(u)}
+                    >
+                      Remove
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -1028,6 +1056,9 @@ export default function EmployeeRolesPage() {
           onUserRoleChanged={handleUserRoleChanged}
           onUserDepartmentChanged={handleUserDepartmentChanged}
           onUserTeamLeadChanged={handleUserTeamLeadChanged}
+          onUserLeaveChanged={(updated) =>
+            setUsers((prev) => prev?.map((u) => (u.id === updated.id ? { ...u, isOnLeave: updated.isOnLeave } : u)) ?? null)
+          }
           onUserBlockChanged={(updated) =>
             setUsers((prev) => prev?.map((u) => (u.id === updated.id ? { ...u, isActive: updated.isActive } : u)) ?? null)
           }

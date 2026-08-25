@@ -245,6 +245,43 @@ function PasswordForm({ hasPassword, onChanged }: { hasPassword: boolean; onChan
   );
 }
 
+// A quick self-service on/off switch, same effect as a SYSTEM_ADMIN setting
+// it on the Employee Roles page — while on leave, requests routed to a role
+// this person holds skip them and reroute to a system admin instead (see
+// EmployeeRolesService.getUnavailableUserIds). Also settable by just telling
+// the assistant bot "I'm going on leave" / "I'm back" (set_my_leave_status).
+function AvailabilityToggle({ profile, onChanged }: { profile: User; onChanged: (user: User) => void }) {
+  const toast = useToast();
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function toggle() {
+    setIsSaving(true);
+    try {
+      const updated = await usersApi.updateMyLeaveStatus(!profile.isOnLeave);
+      onChanged(updated);
+      toast.success(updated.isOnLeave ? "You're marked on leave." : "You're marked active.");
+    } catch {
+      toast.error("Could not update your availability.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      disabled={isSaving}
+      title="While on leave, requests routed to a role you hold go to a system admin instead"
+      className="disabled:opacity-50"
+    >
+      <Badge tone={profile.isOnLeave ? "amber" : "green"}>
+        {profile.isOnLeave ? "On Leave — tap to go active" : "Active — tap to go on leave"}
+      </Badge>
+    </button>
+  );
+}
+
 function SlackCard({ profile, onUnlinked }: { profile: User; onUnlinked: (user: User) => void }) {
   const toast = useToast();
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -344,13 +381,14 @@ export default function ProfilePage() {
         <Avatar name={profile.name || profile.email} className="size-12 text-base" />
         <div>
           <p className="font-heading text-base font-semibold text-foreground">{profile.name}</p>
-          <div className="mt-1 flex items-center gap-2">
+          <div className="mt-1 flex flex-wrap items-center gap-2">
             <Badge tone="violet">{ROLE_LABELS[profile.role]}</Badge>
             {profile.employeeRoles?.map((r) => (
               <Badge key={r.id} tone="slate">
                 {r.name}
               </Badge>
             ))}
+            <AvailabilityToggle profile={profile} onChanged={setProfile} />
           </div>
         </div>
       </div>
