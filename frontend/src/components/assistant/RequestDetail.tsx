@@ -90,7 +90,7 @@ export function RequestDetail({ requestId }: { requestId: string }) {
     try {
       const updated = await requestsApi.attachProof(requestId, files);
       setRequest(updated);
-      toast.success("Proof attached — moved from reserved to spent.");
+      toast.success("Payment marked as sent — the requester has been notified.");
     } catch (err) {
       const status = (err as { response?: { status?: number } }).response?.status;
       toast.error(status === 403 ? "Only a Finance Approver or System Admin can attach proof." : "Could not attach this proof.");
@@ -153,7 +153,7 @@ export function RequestDetail({ requestId }: { requestId: string }) {
   const canDecide = (user && eligibleRoles.includes(user.role)) || canDecideRoleStage;
   const canAttachProof =
     user &&
-    request.status === "APPROVED" &&
+    request.status === "PENDING_PAYMENT" &&
     !hasVerifiedAttachment &&
     FINANCE_DECIDE_ROLES.includes(user.role);
 
@@ -226,10 +226,11 @@ export function RequestDetail({ requestId }: { requestId: string }) {
         <div className="flex flex-col gap-4">
           {canAttachProof && (
             <Card>
-              <h2 className="font-heading mb-1 text-sm font-semibold text-foreground">Attach Proof</h2>
+              <h2 className="font-heading mb-1 text-sm font-semibold text-foreground">Mark Payment Sent</h2>
               <p className="mb-3 text-xs text-muted">
-                Approved on a stated, unverified amount — upload the receipt/invoice (one or more
-                files) to close this out and move the reserved funds to spent.
+                Approved on a stated, unverified amount — once you&apos;ve actually sent the money,
+                upload the transaction/payment proof (one or more files) to mark it paid. The
+                requester is notified automatically.
               </p>
               <input
                 ref={proofInputRef}
@@ -250,7 +251,7 @@ export function RequestDetail({ requestId }: { requestId: string }) {
                 onClick={() => proofInputRef.current?.click()}
               >
                 {!isUploadingProof && <Paperclip className="size-4" aria-hidden />}
-                Upload receipt/invoice
+                Upload transaction proof
               </Button>
             </Card>
           )}

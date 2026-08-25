@@ -8,6 +8,7 @@ export const REQUEST_STATUS_DISPLAY: Record<RequestStatus, { label: string; tone
   PENDING_FINANCE_APPROVAL: { label: "Awaiting Finance", tone: "amber" },
   PENDING_ROLE_APPROVAL: { label: "Awaiting Approval", tone: "amber" },
   APPROVED: { label: "Approved", tone: "green" },
+  PENDING_PAYMENT: { label: "Pending Payment", tone: "amber" },
   REJECTED: { label: "Rejected", tone: "red" },
   ESCALATED: { label: "Escalated", tone: "red" },
   COMPLETED: { label: "Completed", tone: "green" },

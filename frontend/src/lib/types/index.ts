@@ -12,6 +12,9 @@ export type RequestStatus =
   // Routed to an EmployeeRole (e.g. HR) that must actually decide it.
   | 'PENDING_ROLE_APPROVAL'
   | 'APPROVED'
+  // Finance approved a stated, unverified amount but hasn't paid yet — see
+  // RequestDetail's "Attach Proof" flow, which is FM marking payment done.
+  | 'PENDING_PAYMENT'
   | 'REJECTED'
   | 'ESCALATED'
   | 'COMPLETED'

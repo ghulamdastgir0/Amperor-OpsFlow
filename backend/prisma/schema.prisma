@@ -43,6 +43,12 @@ enum RequestStatus {
   // the dollar-amount pipeline above. See RequestsService.decideRoleStage.
   PENDING_ROLE_APPROVAL
   APPROVED
+  // Finance approved a *stated, unverified* dollar amount (the "reserve now,
+  // prove later" path — see RequestsService.decideFinanceStage/attachProof):
+  // work can start, but the money hasn't actually been sent yet. Distinct
+  // from APPROVED, which for the verified-receipt path already IS the spend
+  // (nothing left to pay), so it stays terminal there.
+  PENDING_PAYMENT
   REJECTED
   ESCALATED
   COMPLETED

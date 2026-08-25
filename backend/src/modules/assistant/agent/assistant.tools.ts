@@ -27,6 +27,7 @@ const REQUEST_STATUS_LABELS: Record<string, string> = {
   PENDING_FINANCE_APPROVAL: 'waiting on Finance approval',
   PENDING_ROLE_APPROVAL: 'waiting on approval from whoever it was routed to',
   APPROVED: 'approved',
+  PENDING_PAYMENT: 'approved — payment is being processed, not yet sent',
   REJECTED: 'rejected',
   ESCALATED: 'escalated to a system admin to resolve',
   COMPLETED: 'completed — no approval was needed',

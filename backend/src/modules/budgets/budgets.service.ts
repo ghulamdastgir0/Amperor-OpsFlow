@@ -178,7 +178,7 @@ export class BudgetsService {
       : transactions;
   }
 
-  // "Reservations" = money committed but not yet proven: requests APPROVED
+  // "Reservations" = money committed but not yet paid: requests PENDING_PAYMENT
   // via the stated-amount finance path (RequestsService's "reserve now,
   // prove later" flow) that have no attachment yet. The moment a Finance
   // Approver/Admin attaches proof (RequestsService.attachProof), the request
@@ -192,7 +192,7 @@ export class BudgetsService {
     const requests = await this.prisma.request.findMany({
       where: {
         tenantId,
-        status: RequestStatus.APPROVED,
+        status: RequestStatus.PENDING_PAYMENT,
         attachments: { none: {} },
         statedAmount: { not: null },
       },

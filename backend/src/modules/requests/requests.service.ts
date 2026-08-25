@@ -231,6 +231,7 @@ export class RequestsService {
     RequestStatus.PENDING_MANAGER_APPROVAL,
     RequestStatus.PENDING_FINANCE_APPROVAL,
     RequestStatus.APPROVED,
+    RequestStatus.PENDING_PAYMENT,
     RequestStatus.NOTED,
   ];
 
@@ -356,6 +357,7 @@ export class RequestsService {
     RequestStatus.PENDING_ROLE_APPROVAL,
     RequestStatus.ESCALATED,
     RequestStatus.APPROVED,
+    RequestStatus.PENDING_PAYMENT,
     RequestStatus.NOTED,
   ];
   private static readonly DEDUP_WINDOW_DAYS = 30;
@@ -647,6 +649,7 @@ export class RequestsService {
           request.id,
           budgetScope,
           effectiveAmount,
+          hasVerifiedAttachment,
           decision,
           reason,
         );
@@ -667,7 +670,16 @@ export class RequestsService {
     }
 
     // Best-effort — never lets a notification failure fail the decision itself.
-    if (
+    // PENDING_PAYMENT gets its own "we're on it, payment is on the way"
+    // message rather than a flat "approved" — the money hasn't actually been
+    // sent yet (see attachProof, which sends the real "payment sent" ping).
+    if (result.status === RequestStatus.PENDING_PAYMENT) {
+      await this.notifyRequesterOfPendingPayment(
+        tenantId,
+        request.requester,
+        request.rawPrompt,
+      );
+    } else if (
       result.status === RequestStatus.APPROVED ||
       result.status === RequestStatus.REJECTED
     ) {
@@ -686,7 +698,8 @@ export class RequestsService {
     // means they just approved it themselves via decideRoleStage and already
     // know).
     if (
-      result.status === RequestStatus.APPROVED &&
+      (result.status === RequestStatus.APPROVED ||
+        result.status === RequestStatus.PENDING_PAYMENT) &&
       request.routedRoleId &&
       request.status !== RequestStatus.PENDING_ROLE_APPROVAL
     ) {
@@ -840,10 +853,17 @@ export class RequestsService {
       },
     );
 
+    // A verified/receipt-backed approval already IS the spend (the receipt
+    // was submitted up front — nothing left to pay), so it stays APPROVED
+    // and terminal. An unverified stated-amount approval hasn't actually
+    // been paid yet — see attachProof, which is what moves it on from here.
+    const approvedStatus = hasVerifiedAttachment
+      ? RequestStatus.APPROVED
+      : RequestStatus.PENDING_PAYMENT;
     const updated = await this.setStatus(
       requestId,
       decision === ApprovalDecision.APPROVED
-        ? RequestStatus.APPROVED
+        ? approvedStatus
         : RequestStatus.REJECTED,
     );
     return budgetWarning ? { ...updated, budgetWarning } : updated;
@@ -855,6 +875,7 @@ export class RequestsService {
     requestId: string,
     budgetScope: string,
     totalAmount: number,
+    hasVerifiedAttachment: boolean,
     decision: FinalDecision,
     reason: string | undefined,
   ) {
@@ -892,10 +913,14 @@ export class RequestsService {
       },
     );
 
+    const approvedStatus =
+      totalAmount > 0 && !hasVerifiedAttachment
+        ? RequestStatus.PENDING_PAYMENT
+        : RequestStatus.APPROVED;
     const updated = await this.setStatus(
       requestId,
       decision === ApprovalDecision.APPROVED
-        ? RequestStatus.APPROVED
+        ? approvedStatus
         : RequestStatus.REJECTED,
     );
     return budgetWarning ? { ...updated, budgetWarning } : updated;
@@ -965,9 +990,10 @@ export class RequestsService {
     );
   }
 
-  // Finance/Admin closes out an APPROVED-but-unverified request (the
-  // "reserve now, prove later" path — see runPipeline) by attaching the
-  // actual receipt/invoice. This becomes a real Attachment row via the same
+  // Finance/Admin closes out a PENDING_PAYMENT (approved-but-unpaid) request
+  // — the "reserve now, prove later" path (see runPipeline/decideFinanceStage)
+  // — by attaching the actual transaction/receipt image, which is FM's way of
+  // marking the payment done. This becomes a real Attachment row via the same
   // OCR pipeline Slack file ingestion uses, and moving the request to
   // COMPLETED is what makes BudgetsService count it as spent (its
   // "transaction" query already looks for status in [APPROVED, COMPLETED]
@@ -987,12 +1013,12 @@ export class RequestsService {
     }
     const request = await this.prisma.request.findFirst({
       where: { id: requestId, tenantId },
-      include: { attachments: true },
+      include: { attachments: true, requester: true },
     });
     if (!request) throw new NotFoundException('Request not found');
-    if (request.status !== RequestStatus.APPROVED) {
+    if (request.status !== RequestStatus.PENDING_PAYMENT) {
       throw new BadRequestException(
-        'Proof can only be attached to an approved request',
+        'Proof can only be attached to a request pending payment',
       );
     }
     if (request.attachments.length > 0) {
@@ -1036,7 +1062,7 @@ export class RequestsService {
 
     await this.addStep(
       requestId,
-      'Proof Attached — Reserved Funds Spent',
+      'Payment Sent — Proof Attached',
       ExecutionStepStatus.COMPLETED,
     );
     await this.audit(
@@ -1051,6 +1077,11 @@ export class RequestsService {
     );
 
     await this.setStatus(requestId, RequestStatus.COMPLETED);
+    await this.notifyRequesterOfPaymentSent(
+      tenantId,
+      request.requester,
+      request.rawPrompt,
+    );
     return this.findOne(tenantId, requestId, {
       userId: actingUser.userId,
       role: actingUser.role,
@@ -1117,6 +1148,65 @@ export class RequestsService {
     } catch (error) {
       this.logger.warn(
         `Failed to notify requester of decision: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  // Best-effort, never throws — the "confirmed, we're on it" message for a
+  // money request that's been approved but not yet paid (the "reserve now,
+  // prove later" path — see decideFinanceStage/decideEscalatedStage). The
+  // real "your money was sent" message comes later, from
+  // notifyRequesterOfPaymentSent once Finance actually attaches proof.
+  private async notifyRequesterOfPendingPayment(
+    tenantId: string,
+    requester: { id: string; name: string; slackUserId: string | null },
+    rawPrompt: string,
+  ) {
+    try {
+      if (!requester.slackUserId) return;
+      const botToken = await this.resolveBotToken(tenantId);
+      if (!botToken) return;
+
+      const text = `Your request "${rawPrompt}" was approved — we're on it now, payment is being processed.`;
+      await firstValueFrom(
+        this.httpService.post(
+          'https://slack.com/api/chat.postMessage',
+          { channel: requester.slackUserId, text },
+          { headers: { Authorization: `Bearer ${botToken}` } },
+        ),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Failed to notify requester of pending payment: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  // Best-effort, never throws — fires once Finance actually attaches the
+  // transaction/payment proof (see attachProof), which is the real "your
+  // money moved" moment, distinct from the earlier "approved, in progress"
+  // ping from notifyRequesterOfPendingPayment.
+  private async notifyRequesterOfPaymentSent(
+    tenantId: string,
+    requester: { id: string; name: string; slackUserId: string | null },
+    rawPrompt: string,
+  ) {
+    try {
+      if (!requester.slackUserId) return;
+      const botToken = await this.resolveBotToken(tenantId);
+      if (!botToken) return;
+
+      const text = `Payment has been sent for your request "${rawPrompt}" — you're all set.`;
+      await firstValueFrom(
+        this.httpService.post(
+          'https://slack.com/api/chat.postMessage',
+          { channel: requester.slackUserId, text },
+          { headers: { Authorization: `Bearer ${botToken}` } },
+        ),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Failed to notify requester of payment sent: ${(error as Error).message}`,
       );
     }
   }

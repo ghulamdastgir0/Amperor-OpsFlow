@@ -9,10 +9,10 @@ export function PendingProofList({ reservations }: { reservations: FinanceReserv
 
   return (
     <Card>
-      <h2 className="font-heading mb-1 text-sm font-semibold text-foreground">Awaiting Proof</h2>
+      <h2 className="font-heading mb-1 text-sm font-semibold text-foreground">Pending Payment</h2>
       <p className="mb-4 text-xs text-muted">
-        Approved on a stated (unverified) amount — attach a receipt/invoice on each request to move it
-        from reserved to spent.
+        Approved on a stated (unverified) amount — send the payment, then attach the transaction
+        proof on each request to move it from reserved to spent.
       </p>
       <ul className="flex flex-col divide-y divide-border">
         {reservations.map((r) => (
