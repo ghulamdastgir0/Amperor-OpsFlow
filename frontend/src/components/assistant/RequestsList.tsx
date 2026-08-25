@@ -108,6 +108,14 @@ export function RequestsList() {
                     {(request.attachments?.length ?? 0) > 0 && (
                       <Paperclip className="size-3.5 shrink-0 text-muted" aria-hidden />
                     )}
+                    {(request.additionalReporters?.length ?? 0) > 0 && (
+                      <span
+                        className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-muted dark:bg-white/10"
+                        title={`Also reported by ${request.additionalReporters!.map((r) => r.name).join(", ")}`}
+                      >
+                        +{request.additionalReporters!.length}
+                      </span>
+                    )}
                     <span className="hidden shrink-0 text-xs text-muted sm:block">
                       {new Date(request.createdAt).toLocaleDateString()}
                     </span>

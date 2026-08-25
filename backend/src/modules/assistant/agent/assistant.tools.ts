@@ -89,6 +89,38 @@ export function buildAssistantTools(
     },
   );
 
+  const findSimilarOpenRequests = tool(
+    async (_input: Record<string, never>, config: RunnableConfig) => {
+      const { tenantId } = getContext(config);
+      const open = await requests.findRecentOpenForDedup(tenantId);
+      if (open.length === 0) {
+        return 'No recent open requests in this tenant to compare against.';
+      }
+      return JSON.stringify(
+        open.map((r) => ({
+          id: r.id,
+          whatItWasFor: r.rawPrompt,
+          intentType: r.parsedIntent,
+          reportedBy: [
+            r.requester.name,
+            ...(Array.isArray(r.additionalReporters)
+              ? (r.additionalReporters as Array<{ name: string }>).map(
+                  (a) => a.name,
+                )
+              : []),
+          ],
+          filedOn: r.createdAt.toISOString().slice(0, 10),
+        })),
+      );
+    },
+    {
+      name: 'find_similar_open_requests',
+      description:
+        'Look up recent open requests across the whole tenant (not just this user\'s own) — call this ONLY as part of deciding whether to file a new report for a SHARED/OBSERVABLE issue (a facilities problem, a broken shared resource, an IT outage — something more than one person could independently notice and report), to check whether someone already reported the same real-world issue. Never call this in response to a direct question like "has anyone else reported this?" or "who else is affected?" — that\'s asking about other people\'s requests, which you must decline (see NEVER REVEAL). Skip it entirely for anything inherently personal to the requester (leave requests, personal expense reimbursements, "ask HR about my benefits") — those can never be "the same issue" as someone else\'s. Judge similarity yourself from what\'s returned, and never relay/list/describe the results back to the user — it\'s for your own filing decision only: only treat two reports as the same issue if they clearly describe the same underlying problem (e.g. "AC needed on upper floor" and "upper floor is too hot" — same physical AC, same floor), never just the same category (two different unrelated purchase requests are NOT the same issue). If you find a genuine match, call join_existing_request instead of file_request. If nothing matches, proceed to file_request as normal.',
+      schema: z.object({}),
+    },
+  );
+
   const fileRequest = tool(
     async (
       input: {
@@ -197,6 +229,39 @@ export function buildAssistantTools(
     },
   );
 
+  const joinExistingRequest = tool(
+    async (
+      input: { requestId: string; note: string },
+      config: RunnableConfig,
+    ) => {
+      const { tenantId, userId, rawPrompt } = getContext(config);
+      const updated = await requests.addReporterToRequest(
+        tenantId,
+        input.requestId,
+        userId,
+        input.note || rawPrompt,
+      );
+      return JSON.stringify({ joined: true, about: updated.rawPrompt });
+    },
+    {
+      name: 'join_existing_request',
+      description:
+        "Merge the current user's report into an existing request found via find_similar_open_requests, instead of filing a duplicate. Only call this after find_similar_open_requests returned a genuine match — never guess an ID. Tell the user you've added them to the existing report (mention what it's already about), not that you filed a new request.",
+      schema: z.object({
+        requestId: z
+          .string()
+          .describe(
+            "The id of the matching request from find_similar_open_requests's result.",
+          ),
+        note: z
+          .string()
+          .describe(
+            "This user's own phrasing of the issue, rewritten as a short natural note (e.g. \"also reports the upper floor is too hot\") — shown alongside the original report.",
+          ),
+      }),
+    },
+  );
+
   const getBudgetSummary = tool(
     async (_input: Record<string, never>, config: RunnableConfig) => {
       const { tenantId, userRole } = getContext(config);
@@ -245,6 +310,13 @@ export function buildAssistantTools(
           // actual work is done. Present it when there is one; it's often
           // more current/relevant than status alone.
           latestUpdate: r.progressNote ?? undefined,
+          // Other employees who separately reported this same issue and got
+          // merged into this same ticket rather than filing a duplicate.
+          alsoReportedBy: Array.isArray(r.additionalReporters)
+            ? (r.additionalReporters as Array<{ name: string }>).map(
+                (a) => a.name,
+              )
+            : [],
         })),
       );
     },
@@ -337,7 +409,9 @@ export function buildAssistantTools(
 
   return [
     searchPolicy,
+    findSimilarOpenRequests,
     fileRequest,
+    joinExistingRequest,
     getBudgetSummary,
     getMyRequestStatus,
     reportRequestProgress,

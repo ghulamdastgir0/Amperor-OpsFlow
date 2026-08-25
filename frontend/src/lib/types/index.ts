@@ -127,6 +127,14 @@ export interface OpsRequest {
   // Set when routed to an EmployeeRole (see RequestStatus.PENDING_ROLE_APPROVAL
   // / NOTED) — whoever holds this role can decide/see the request too.
   routedRoleId?: string | null;
+  // Free-text update from whoever it was routed to (e.g. IT Support saying
+  // the router is fixed) — see RequestsService.recordProgressNote.
+  progressNote?: string | null;
+  progressNoteAt?: string | null;
+  // Other employees who separately reported this same real-world issue and
+  // got merged into this request instead of filing a duplicate — see
+  // RequestsService.addReporterToRequest.
+  additionalReporters?: { userId: string; name: string; note: string; reportedAt: string }[];
   attachments?: Attachment[];
   executionSteps?: ExecutionStep[];
   policyCitations?: PolicyCitation[];

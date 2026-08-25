@@ -179,6 +179,17 @@ export function RequestDetail({ requestId }: { requestId: string }) {
             <p className="mt-4 text-xs text-muted">
               Submitted {new Date(request.createdAt).toLocaleString()}
             </p>
+            {request.additionalReporters && request.additionalReporters.length > 0 && (
+              <p className="mt-2 text-xs text-muted">
+                Also reported by {request.additionalReporters.map((r) => r.name).join(", ")}
+              </p>
+            )}
+            {request.progressNote && (
+              <div className="mt-4 rounded-lg border border-border bg-slate-50 px-3.5 py-2.5 text-sm dark:bg-white/5">
+                <p className="text-xs font-medium text-muted">Latest update</p>
+                <p className="mt-0.5 text-foreground">{request.progressNote}</p>
+              </div>
+            )}
           </Card>
 
           {request.attachments && request.attachments.length > 0 && (

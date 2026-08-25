@@ -215,6 +215,7 @@ export class RequestsService {
         routedRole: { select: { name: true } },
         progressNote: true,
         progressNoteAt: true,
+        additionalReporters: true,
       },
     });
   }
@@ -337,6 +338,104 @@ export class RequestsService {
         `Failed to notify requester of progress: ${(error as Error).message}`,
       );
     }
+  }
+
+  // Used by the assistant's find_similar_open_requests tool, called before
+  // filing a shared/observable issue (e.g. a facilities complaint) so a
+  // second person reporting the same real-world problem gets merged into
+  // the existing ticket instead of creating a duplicate — see
+  // addReporterToRequest. Deliberately not scoped to one requester (unlike
+  // findRecentForRequester): the whole point is finding OTHER people's
+  // recent open requests. Excludes REJECTED/CANCELLED/COMPLETED — a
+  // completed one might genuinely need a fresh report if the problem
+  // recurred, so don't silently fold into it.
+  private static readonly OPEN_FOR_DEDUP_STATUSES: RequestStatus[] = [
+    RequestStatus.PENDING_POLICY_CHECK,
+    RequestStatus.PENDING_MANAGER_APPROVAL,
+    RequestStatus.PENDING_FINANCE_APPROVAL,
+    RequestStatus.PENDING_ROLE_APPROVAL,
+    RequestStatus.ESCALATED,
+    RequestStatus.APPROVED,
+    RequestStatus.NOTED,
+  ];
+  private static readonly DEDUP_WINDOW_DAYS = 30;
+
+  async findRecentOpenForDedup(tenantId: string, limit = 20) {
+    const since = new Date(
+      Date.now() -
+        RequestsService.DEDUP_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+    );
+    return this.prisma.request.findMany({
+      where: {
+        tenantId,
+        status: { in: RequestsService.OPEN_FOR_DEDUP_STATUSES },
+        createdAt: { gte: since },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      select: {
+        id: true,
+        rawPrompt: true,
+        parsedIntent: true,
+        requesterId: true,
+        requester: { select: { name: true } },
+        additionalReporters: true,
+        createdAt: true,
+      },
+    });
+  }
+
+  // Merges a second (or third...) person's report of the same real-world
+  // issue into an existing request rather than creating a duplicate ticket.
+  // additionalReporters is display-only Json (see schema comment) — this
+  // doesn't touch status/routing, it just extends who the ticket is for.
+  // Looks the reporter's name up server-side (like notifyRoleForRequest
+  // does for the original requester) rather than trusting a caller-supplied
+  // name.
+  async addReporterToRequest(
+    tenantId: string,
+    requestId: string,
+    reporterId: string,
+    note: string,
+  ) {
+    const request = await this.prisma.request.findFirst({
+      where: { id: requestId, tenantId },
+    });
+    if (!request) throw new NotFoundException('Request not found');
+
+    if (request.requesterId === reporterId) {
+      // They're the original requester following up on their own thing —
+      // nothing to merge, this isn't a second person's report.
+      return request;
+    }
+
+    const existing = Array.isArray(request.additionalReporters)
+      ? (request.additionalReporters as Array<{ userId: string }>)
+      : [];
+    if (existing.some((r) => r.userId === reporterId)) {
+      return request; // already added — don't duplicate on a repeat mention
+    }
+
+    const reporter = await this.prisma.user.findFirst({
+      where: { id: reporterId, tenantId },
+      select: { name: true },
+    });
+    if (!reporter) throw new NotFoundException('Reporter not found');
+
+    return this.prisma.request.update({
+      where: { id: requestId },
+      data: {
+        additionalReporters: [
+          ...existing,
+          {
+            userId: reporterId,
+            name: reporter.name,
+            note,
+            reportedAt: new Date().toISOString(),
+          },
+        ] as Prisma.InputJsonValue,
+      },
+    });
   }
 
   async findOne(

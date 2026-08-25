@@ -317,6 +317,13 @@ model Request {
   // direct notification. See RequestsService.recordProgressNote.
   progressNote   String?        @map("progress_note") @db.Text
   progressNoteAt DateTime?      @map("progress_note_at") @db.Timestamptz
+  // Other employees who reported the same real-world issue after this
+  // request was already filed (e.g. a second person also flagging the
+  // broken upper-floor AC) — merged in here by the assistant's
+  // join_existing_request tool instead of creating a duplicate ticket.
+  // Json (not a join table) since this is display-only, same pragmatism as
+  // attachmentUrls above: [{ userId, name, note, reportedAt }].
+  additionalReporters Json      @default("[]") @map("additional_reporters")
   createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz
 
   tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
