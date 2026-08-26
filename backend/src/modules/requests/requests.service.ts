@@ -710,7 +710,20 @@ export class RequestsService {
         request.rawPrompt,
       );
     }
-    return result;
+    // `result` here is whatever the stage helper's bare `setStatus()` update
+    // returned — no `executionSteps`/`attachments`/`policyCitations` relations
+    // included, since setStatus is a plain Prisma update, not findOne's
+    // DETAIL_INCLUDE. Returning that directly to the frontend was overwriting
+    // its already-loaded execution timeline with an empty one until the next
+    // manual reload (real bug, caught in testing 2026-08-26) — re-fetch the
+    // fully hydrated request instead, same shape a reload would show.
+    const hydrated = await this.findOne(tenantId, requestId, {
+      userId: actingUser.userId,
+      role: actingUser.role,
+    });
+    return result.budgetWarning
+      ? { ...hydrated, budgetWarning: result.budgetWarning }
+      : hydrated;
   }
 
   private async decideManagerStage(

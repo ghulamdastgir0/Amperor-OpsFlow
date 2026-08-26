@@ -10,11 +10,12 @@ import { Input } from "@/components/ui/Field";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
 
-const SLACK_ERROR_MESSAGES: Record<string, string> = {
+const LOGIN_ERROR_MESSAGES: Record<string, string> = {
   slack_not_linked:
     "That Slack account isn't linked to any user here yet. Ask your admin to invite you.",
   slack_login_failed: "Sign-in with Slack failed. Please try again.",
   slack_install_failed: "Connecting the Slack workspace failed. Please try again.",
+  account_blocked: "Your session has ended because your account access was revoked. Contact your admin if you believe this is a mistake.",
 };
 
 export default function LoginPage() {
@@ -36,7 +37,7 @@ export default function LoginPage() {
     // there). One-shot consumption of a browser-URL side channel has no derived-state
     // equivalent, so this is a deliberate, narrow exception to the no-setState-in-effect rule.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSlackError(SLACK_ERROR_MESSAGES[errorCode] ?? "Something went wrong. Please try again.");
+    setSlackError(LOGIN_ERROR_MESSAGES[errorCode] ?? "Something went wrong. Please try again.");
     const url = new URL(window.location.href);
     url.searchParams.delete("error");
     window.history.replaceState({}, "", url.pathname + url.search);

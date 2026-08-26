@@ -20,15 +20,31 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+// JwtAuthGuard returns 403 (not 401) for a blocked account/tenant/admin — the
+// token itself is still valid, access is just revoked — so a plain 401 check
+// alone misses it, and it was falling through to whatever generic
+// "could not load X" message the calling page happened to show, misattributing
+// an auth rejection to a backend outage. Recognized here by exact message text
+// (see JwtAuthGuard) since a 403 is also the legitimate, non-session-ending
+// response for a normal RBAC restriction (e.g. an EMPLOYEE hitting a
+// Finance-only route) — only these specific messages should log the user out.
+const BLOCKED_ACCOUNT_MESSAGES = new Set([
+  'This account has been blocked',
+  'This tenant has been blocked',
+  'This admin account has been blocked',
+]);
+
 apiClient.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
-    if (error.response?.status === 401 && typeof window !== 'undefined') {
+    const status = error.response?.status;
+    const message = (error.response?.data as { message?: string } | undefined)?.message;
+    const isBlocked = status === 403 && typeof message === 'string' && BLOCKED_ACCOUNT_MESSAGES.has(message);
+    if ((status === 401 || isBlocked) && typeof window !== 'undefined') {
       window.localStorage.removeItem(AUTH_TOKEN_KEY);
       window.dispatchEvent(new Event(AUTH_CHANGE_EVENT));
       // Hard redirect: this runs outside the React tree, so useRouter() isn't available here.
-      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-      window.location.href = '/login';
+      window.location.href = isBlocked ? '/login?error=account_blocked' : '/login';
     }
     return Promise.reject(error);
   },

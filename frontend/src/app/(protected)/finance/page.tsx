@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { AlertCircle } from "lucide-react";
 import { budgetsApi } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
@@ -48,6 +49,18 @@ export default function FinancePage() {
     }
   }
 
+  async function renameBudget(budget: BudgetWithSpend, newName: string) {
+    try {
+      await budgetsApi.renameBudget(budget.id, newName);
+      toast.success(`Renamed "${budget.departmentScope}" to "${newName}".`);
+      load();
+    } catch (err) {
+      const status = (err as { response?: { status?: number } }).response?.status;
+      toast.error(status === 409 ? "A department with this name already exists." : "Could not rename this department.");
+      throw err;
+    }
+  }
+
   return (
     <div>
       <PageHeader
@@ -69,6 +82,7 @@ export default function FinancePage() {
           <BudgetSummary
             dashboard={dashboard}
             onDeleteBudget={user?.role === "SYSTEM_ADMIN" ? setPendingDelete : undefined}
+            onRenameBudget={user?.role === "SYSTEM_ADMIN" ? renameBudget : undefined}
           />
 
           <PendingProofList reservations={dashboard.pendingProof} />
@@ -78,7 +92,11 @@ export default function FinancePage() {
               <h2 className="font-heading mb-1 text-sm font-semibold text-foreground">Departments</h2>
               <p className="mb-4 text-xs text-muted">
                 Add a new department, or update an existing one&apos;s allocation by entering its exact name
-                again.
+                again. Department names show up in employee/profile department dropdowns tenant-wide — see{" "}
+                <Link href="/admin/roles" className="font-medium text-primary hover:underline">
+                  Employees
+                </Link>{" "}
+                to assign them.
               </p>
               <BudgetForm onSaved={load} />
             </Card>

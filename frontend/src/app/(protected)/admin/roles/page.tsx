@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { AlertCircle, Megaphone, Pencil, Plus, Tag, UserPlus, Wand2, X } from "lucide-react";
+import Link from "next/link";
+import { AlertCircle, ArrowUpRight, Megaphone, Pencil, Plus, Tag, UserPlus, Wand2, X } from "lucide-react";
 import { budgetsApi, employeeRolesApi, usersApi } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import type { EmployeeRole, Role, User } from "@/lib/types";
@@ -10,6 +11,7 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input, Select, Textarea } from "@/components/ui/Field";
+import { DepartmentPicker } from "@/components/ui/DepartmentPicker";
 import { Modal } from "@/components/ui/Modal";
 import { Avatar } from "@/components/ui/Avatar";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -288,9 +290,11 @@ function RoleCatalog({
 function AddEmployeeForm({
   onCreated,
   departmentOptions,
+  onDepartmentCreated,
 }: {
   onCreated: (user: User) => void;
   departmentOptions: string[];
+  onDepartmentCreated: (name: string) => void;
 }) {
   const toast = useToast();
   const [showForm, setShowForm] = useState(false);
@@ -374,14 +378,16 @@ function AddEmployeeForm({
                 </option>
               ))}
             </Select>
-            <Select label="Department" hint="Optional" value={department} onChange={(e) => setDepartment(e.target.value)}>
-              <option value="">No department</option>
-              {departmentOptions.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </Select>
+            <DepartmentPicker
+              label="Department"
+              hint="Optional"
+              emptyLabel="No department"
+              value={department}
+              onChange={setDepartment}
+              options={departmentOptions}
+              onCreated={onDepartmentCreated}
+              allowCreate
+            />
             <Button type="submit" isLoading={isCreating} className="w-fit self-end">
               {isCreating ? "Adding…" : "Add"}
             </Button>
@@ -455,6 +461,7 @@ function EmployeeAssignments({
   onUserLeaveChanged,
   onUserBlockChanged,
   onUserRemoved,
+  onDepartmentCreated,
 }: {
   users: User[];
   roles: EmployeeRole[];
@@ -467,6 +474,7 @@ function EmployeeAssignments({
   onUserLeaveChanged: (user: User) => void;
   onUserBlockChanged: (user: User) => void;
   onUserRemoved: (userId: string) => void;
+  onDepartmentCreated: (name: string) => void;
 }) {
   const toast = useToast();
   const { user: currentUser } = useAuth();
@@ -600,9 +608,22 @@ function EmployeeAssignments({
 
   return (
     <Card>
-      <h2 className="font-heading mb-4 text-sm font-semibold text-foreground">Employees</h2>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h2 className="font-heading text-sm font-semibold text-foreground">Employees</h2>
+        <Link
+          href="/finance"
+          className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+        >
+          Manage departments
+          <ArrowUpRight className="size-3" aria-hidden />
+        </Link>
+      </div>
 
-      <AddEmployeeForm onCreated={onUserCreated} departmentOptions={departmentOptions} />
+      <AddEmployeeForm
+        onCreated={onUserCreated}
+        departmentOptions={departmentOptions}
+        onDepartmentCreated={onDepartmentCreated}
+      />
 
       {users.length === 0 ? (
         <p className="text-sm text-muted">No employees yet.</p>
@@ -633,23 +654,17 @@ function EmployeeAssignments({
                   ))}
                 </select>
 
-                <select
+                <DepartmentPicker
+                  variant="pill"
                   value={u.department ?? ""}
                   disabled={pendingDepartmentUserId === u.id}
-                  onChange={(e) => applyDepartmentChange(u, e.target.value)}
+                  onChange={(value) => applyDepartmentChange(u, value)}
+                  options={departmentOptions}
+                  onCreated={onDepartmentCreated}
+                  allowCreate
+                  emptyLabel="No department"
                   title="Department — used to route expense approvals to the right delegate"
-                  className="rounded-full border border-border bg-surface px-2.5 py-1 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50"
-                >
-                  <option value="">No department</option>
-                  {(u.department && !departmentOptions.includes(u.department)
-                    ? [u.department, ...departmentOptions]
-                    : departmentOptions
-                  ).map((d) => (
-                    <option key={d} value={d}>
-                      {d}
-                    </option>
-                  ))}
-                </select>
+                />
 
                 <select
                   value={u.teamLeadId ?? ""}
@@ -662,8 +677,13 @@ function EmployeeAssignments({
                   {users
                     .filter((candidate) => candidate.id !== u.id)
                     .map((candidate) => (
+                      // Email always shown, not just on a name collision — two
+                      // employees sharing a name (e.g. two "Ghulam Dastgir"s)
+                      // were otherwise indistinguishable in this list, so
+                      // there was no reliable way to tell which one you'd
+                      // actually assigned (caught in testing 2026-08-26).
                       <option key={candidate.id} value={candidate.id}>
-                        {candidate.name}
+                        {candidate.name} ({candidate.email})
                       </option>
                     ))}
                 </select>
@@ -1061,6 +1081,9 @@ export default function EmployeeRolesPage() {
           }
           onUserBlockChanged={(updated) =>
             setUsers((prev) => prev?.map((u) => (u.id === updated.id ? { ...u, isActive: updated.isActive } : u)) ?? null)
+          }
+          onDepartmentCreated={(name) =>
+            setDepartmentOptions((prev) => (prev.includes(name) ? prev : [...prev, name].sort()))
           }
           onUserRemoved={(userId) => setUsers((prev) => prev?.filter((u) => u.id !== userId) ?? null)}
         />

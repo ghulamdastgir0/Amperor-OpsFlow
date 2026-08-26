@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { RequestStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
@@ -78,6 +82,61 @@ export class BudgetsService {
     });
     if (!budget) throw new NotFoundException('Department not found');
     await this.prisma.budget.delete({ where: { id } });
+  }
+
+  // Fixes a typo/rename without orphaning every other plain-string reference
+  // to the old name (unlike remove, above) — cascades to Request.budgetDepartment,
+  // User.department, and FinanceDelegation.departmentScope in the same
+  // transaction, so a renamed department doesn't silently strand existing
+  // history under the old spelling. Added after "Maintaince" (a typo made
+  // while testing) turned out to have no way to fix short of a raw DB edit —
+  // there was no rename at all, only create/delete.
+  async rename(
+    tenantId: string,
+    id: string,
+    adminId: string,
+    departmentScope: string,
+  ) {
+    const budget = await this.prisma.budget.findFirst({
+      where: { id, tenantId },
+    });
+    if (!budget) throw new NotFoundException('Department not found');
+    if (departmentScope === budget.departmentScope) return budget;
+
+    const existing = await this.prisma.budget.findUnique({
+      where: { tenantId_departmentScope: { tenantId, departmentScope } },
+    });
+    if (existing) {
+      throw new ConflictException('A department with this name already exists');
+    }
+
+    const oldName = budget.departmentScope;
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.budget.update({ where: { id }, data: { departmentScope } }),
+      this.prisma.request.updateMany({
+        where: { tenantId, budgetDepartment: oldName },
+        data: { budgetDepartment: departmentScope },
+      }),
+      this.prisma.user.updateMany({
+        where: { tenantId, department: oldName },
+        data: { department: departmentScope },
+      }),
+      this.prisma.financeDelegation.updateMany({
+        where: { tenantId, departmentScope: oldName },
+        data: { departmentScope },
+      }),
+    ]);
+
+    await this.auditLogs.record({
+      tenantId,
+      actorId: adminId,
+      action: 'BUDGET_RENAMED',
+      entityType: 'budget',
+      entityId: id,
+      metadata: { from: oldName, to: departmentScope },
+    });
+
+    return updated;
   }
 
   // Used by RequestsService to block/warn on an approval that would over-commit

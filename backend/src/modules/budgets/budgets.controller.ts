@@ -1,10 +1,20 @@
-import { Body, Controller, Delete, Get, Param, Put, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Put,
+  Query,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UpsertBudgetDto } from './dto/upsert-budget.dto';
+import { RenameBudgetDto } from './dto/rename-budget.dto';
 import { BudgetsService } from './budgets.service';
 
 const FINANCE_VISIBLE_ROLES = [
@@ -44,6 +54,21 @@ export class BudgetsController {
   @Roles()
   listDepartmentNames(@CurrentUser() user: AuthenticatedUser) {
     return this.budgetsService.listDepartmentNames(user.tenantId);
+  }
+
+  @Patch(':id')
+  @Roles(Role.SYSTEM_ADMIN)
+  rename(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: RenameBudgetDto,
+  ) {
+    return this.budgetsService.rename(
+      user.tenantId,
+      id,
+      user.userId,
+      dto.departmentScope,
+    );
   }
 
   @Delete(':id')

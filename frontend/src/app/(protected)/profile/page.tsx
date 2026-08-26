@@ -8,7 +8,8 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { Input, Select } from "@/components/ui/Field";
+import { Input } from "@/components/ui/Field";
+import { DepartmentPicker } from "@/components/ui/DepartmentPicker";
 import { Avatar } from "@/components/ui/Avatar";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Modal } from "@/components/ui/Modal";
@@ -112,19 +113,19 @@ function DetailsForm({ profile, onSaved }: { profile: User; onSaved: (user: User
         <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
           <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
           <Input label="Email" value={profile.email} disabled hint="Contact a system admin to change your email." />
-          <Select
+          <DepartmentPicker
             label="Department"
             hint="Matches Finance's budget categories, so approvals route correctly."
+            emptyLabel="No department"
             value={department}
-            onChange={(e) => setDepartment(e.target.value)}
-          >
-            <option value="">No department</option>
-            {availableDepartments.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </Select>
+            onChange={setDepartment}
+            options={availableDepartments}
+            onCreated={(name) => setDepartmentOptions((prev) => (prev.includes(name) ? prev : [...prev, name]))}
+            // Adding a brand-new department name registers it as a real
+            // (initially $0) Budget row — a SYSTEM_ADMIN action even when
+            // it's their own profile, same as everywhere else it's offered.
+            allowCreate={profile.role === "SYSTEM_ADMIN"}
+          />
           <Input label="Access role" value={ROLE_LABELS[profile.role]} disabled hint="Only a system admin can change this." />
           <div className="flex justify-end gap-2 sm:col-span-2">
             <Button type="button" variant="outline" onClick={() => setIsOpen(false)} disabled={isSaving}>

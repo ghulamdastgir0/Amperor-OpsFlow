@@ -25,6 +25,13 @@ export async function deleteBudget(id: string) {
   await apiClient.delete(`/budgets/${id}`);
 }
 
+export async function renameBudget(id: string, departmentScope: string) {
+  const { data } = await apiClient.patch<ApiEnvelope<BudgetWithSpend>>(`/budgets/${id}`, {
+    departmentScope,
+  });
+  return data.data;
+}
+
 // Just category names — open to any authenticated user (unlike listBudgets,
 // which is finance-role-gated) so any employee can pick their department
 // from the same list Finance uses, keeping User.department and

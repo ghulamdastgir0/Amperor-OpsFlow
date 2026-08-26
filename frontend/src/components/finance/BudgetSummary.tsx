@@ -1,4 +1,5 @@
-import { Wallet, TrendingDown, PiggyBank, Percent, Clock, X } from "lucide-react";
+import { useState } from "react";
+import { Wallet, TrendingDown, PiggyBank, Percent, Clock, Pencil, X } from "lucide-react";
 import type { BudgetWithSpend, FinanceDashboard } from "@/lib/types";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -56,9 +57,11 @@ function StatTile({
 function DepartmentCard({
   budget,
   onDelete,
+  onRename,
 }: {
   budget: BudgetWithSpend;
   onDelete?: () => void;
+  onRename?: (newName: string) => Promise<void>;
 }) {
   const allocated = Number(budget.allocatedAmount);
   const spentPct = allocated > 0 ? (budget.spent / allocated) * 100 : 0;
@@ -70,10 +73,66 @@ function DepartmentCard({
   const spentBarPct = spentPct > 0 ? Math.max(1.5, Math.min(100, spentPct)) : 0;
   const reservedBarPct = reservedPct > 0 ? Math.max(1.5, Math.min(100 - spentBarPct, reservedPct)) : 0;
 
+  // Fixing a typo in a department name previously meant a raw DB edit — there
+  // was create/delete but no rename, and every plain-string reference
+  // (Request.budgetDepartment, User.department, delegations) would've been
+  // orphaned by a delete-and-recreate. See BudgetsService.rename.
+  const [isEditing, setIsEditing] = useState(false);
+  const [name, setName] = useState(budget.departmentScope);
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function save() {
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === budget.departmentScope) {
+      setName(budget.departmentScope);
+      setIsEditing(false);
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await onRename?.(trimmed);
+      setIsEditing(false);
+    } catch {
+      setName(budget.departmentScope);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   return (
     <Card>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-medium text-foreground">{budget.departmentScope}</span>
+        {isEditing ? (
+          <input
+            autoFocus
+            value={name}
+            disabled={isSaving}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={save}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") save();
+              if (e.key === "Escape") {
+                setName(budget.departmentScope);
+                setIsEditing(false);
+              }
+            }}
+            className="min-w-0 flex-1 rounded border border-primary/40 bg-surface px-1.5 py-0.5 text-sm font-medium text-foreground focus:outline-none disabled:opacity-50"
+          />
+        ) : (
+          <span className="flex min-w-0 items-center gap-1 text-sm font-medium text-foreground">
+            <span className="truncate">{budget.departmentScope}</span>
+            {onRename && (
+              <button
+                type="button"
+                onClick={() => setIsEditing(true)}
+                title="Rename this department"
+                className="shrink-0 rounded-full p-0.5 text-muted hover:bg-slate-100 hover:text-foreground dark:hover:bg-white/10"
+              >
+                <Pencil className="size-3" aria-hidden />
+              </button>
+            )}
+          </span>
+        )}
         <div className="flex shrink-0 items-center gap-2">
           <span className={cn("text-xs font-medium", health.text)}>{formatPct(spentPct + reservedPct)} committed</span>
           {onDelete && (
@@ -112,9 +171,11 @@ function DepartmentCard({
 export function BudgetSummary({
   dashboard,
   onDeleteBudget,
+  onRenameBudget,
 }: {
   dashboard: FinanceDashboard;
   onDeleteBudget?: (budget: BudgetWithSpend) => void;
+  onRenameBudget?: (budget: BudgetWithSpend, newName: string) => Promise<void>;
 }) {
   const utilizedPct =
     dashboard.totals.allocated > 0
@@ -165,6 +226,7 @@ export function BudgetSummary({
               key={budget.id}
               budget={budget}
               onDelete={onDeleteBudget ? () => onDeleteBudget(budget) : undefined}
+              onRename={onRenameBudget ? (newName) => onRenameBudget(budget, newName) : undefined}
             />
           ))}
         </div>
