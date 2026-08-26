@@ -117,12 +117,15 @@ Run: `npm install` at root, then `npm run dev:backend` / `npm run dev:frontend`.
   the system prompt every turn) to decide which role a filed request should route to, so an undescribed
   role can't be routed to. `POST /employee-roles/suggest-description` lets an admin pull a description
   straight from the tenant's own uploaded policy documents (`PoliciesService.findRelevantClauses`)
-  instead of writing one by hand. The admin UI's access-role picker (`frontend/.../admin/roles/page.tsx`
-  `ROLE_OPTIONS`) only offers `Employee`/`Finance Approver`/`System Admin` — `TEAM_LEAD` and
-  `DEPARTMENT_MANAGER` are still valid `Role` values (the manager-approval fallback in
-  `RequestsService.MANAGER_ROLES` and Finance/Budget guards still accept them) but aren't assignable
-  from that picker since no tenant has used them; `SYSTEM_ADMIN` covers that approval step by default.
-  A new/promoted `SYSTEM_ADMIN` is auto-assigned every existing `EmployeeRole`
+  instead of writing one by hand; `PATCH /employee-roles/:id` (`EmployeeRolesService.update`) edits an
+  existing role's name/description afterward — both surfaced in the admin UI's `RoleRow`/`RoleCatalog`
+  (`frontend/.../admin/roles/page.tsx`). The admin UI's access-role picker (`ROLE_OPTIONS` in the same
+  file) offers `Employee`/`Department Manager`/`Finance Approver`/`System Admin` — `Department Manager`
+  was re-enabled 2026-08-25 (it's the real approver for the manager-approval stage on department-scoped
+  requests, `RequestsService.MANAGER_ROLES`, so an admin needs to be able to assign it). `Role.TEAM_LEAD`
+  is still a valid enum value the same guards/fallbacks accept but isn't offered from that picker, since
+  no tenant has used it — the *personal* Team Lead concept (`User.teamLeadId`) below is unrelated and
+  is assigned separately. A new/promoted `SYSTEM_ADMIN` is auto-assigned every existing `EmployeeRole`
   (`UsersService.assignAllRolesIfAdmin`) so broadcasts and auto-routing always reach at least the
   admins even before anyone else is tagged.
 - **Role-targeted broadcasts and LLM auto-routing share one delivery path**
@@ -151,27 +154,35 @@ Run: `npm install` at root, then `npm run dev:backend` / `npm run dev:frontend`.
   Slack is blocked (`BadRequestException`) if the account has no password set, so a Slack-only user
   can never lock themselves out.
 - **Stated (unverified) amounts now get a real decision instead of silently auto-completing (added
-  2026-08-21)**: `Request.statedAmount` — an LLM-extracted, unverified dollar figure from chat text
-  (`file_request`'s `statedAmount` param) — is a second, independent amount signal alongside the
-  attachment-derived (OCR-verified) one. In `RequestsService.runPipeline`, when there's no verified
-  attachment amount but `statedAmount` is set, the request routes straight to
-  `PENDING_FINANCE_APPROVAL` — skipping the manager stage entirely (this tenant model only really uses
-  Employee/Finance Approver/System Admin) — instead of the old behavior of marking it `COMPLETED` with
-  no decision. `decideFinanceStage` branches on `hasVerifiedAttachment`: a *verified* amount still
-  requires an actual matching `FinanceDelegation` (or `SYSTEM_ADMIN`) exactly as before; an *unverified*
-  one only requires holding `FINANCE_APPROVER` or `SYSTEM_ADMIN` — no delegation needed, since requiring
-  one would make "if no finance manager exists, admin handles it" impossible when no delegations are
-  configured (the common case). Approving an unverified-amount request doesn't create any new
-  reservation record — it's implicit: `BudgetsService.getReservations` finds it directly (`APPROVED`,
-  `statedAmount` set, zero attachments) and reports it as "reserved" on the dashboard alongside
-  allocated/spent/remaining. `RequestsService.attachProof` (Finance/Admin only, `POST
-  /requests/:id/proof`) is how it graduates to spent: it runs the same OCR pipeline Slack attachments
-  use (`OcrService`, now split into its own `OcrModule` — see below), creates a real `Attachment`, and
-  sets the request to `COMPLETED`. Nothing else needs to change on the budget side for that
-  graduation — `getReservations`'s `attachments: { none: {} }` filter naturally stops matching it the
-  moment a real attachment exists, and `getTransactions` (which already existed) picks it up as spent.
-  A given dollar is therefore always counted as reserved OR spent, never both, without any explicit
-  state machine for it.
+  2026-08-21, lifecycle extended 2026-08-26 — see `PENDING_PAYMENT` below)**: `Request.statedAmount` —
+  an LLM-extracted, unverified dollar figure from chat text (`file_request`'s `statedAmount` param) —
+  is a second, independent amount signal alongside the attachment-derived (OCR-verified) one. In
+  `RequestsService.runPipeline`, when there's no verified attachment amount but `statedAmount` is set,
+  the request routes straight to `PENDING_FINANCE_APPROVAL` — skipping the manager stage entirely (this
+  tenant model only really uses Employee/Finance Approver/System Admin) — instead of the old behavior of
+  marking it `COMPLETED` with no decision. `decideFinanceStage` branches on `hasVerifiedAttachment`: a
+  *verified* amount still requires an actual matching `FinanceDelegation` (or `SYSTEM_ADMIN`) exactly as
+  before, and approving it goes straight to `APPROVED` (the receipt already exists — nothing left to
+  pay, already counted as spent); an *unverified* one only requires holding `FINANCE_APPROVER` or
+  `SYSTEM_ADMIN` — no delegation needed, since requiring one would make "if no finance manager exists,
+  admin handles it" impossible when no delegations are configured (the common case) — and approving it
+  goes to `PENDING_PAYMENT`, not `APPROVED` (see below).
+- **`PENDING_PAYMENT` request status (added 2026-08-26)**: sits between "Finance approved a stated,
+  unverified amount" and "the money was actually sent." `decideFinanceStage`/`decideEscalatedStage` both
+  branch on `hasVerifiedAttachment` to decide `APPROVED` vs `PENDING_PAYMENT` on approval (see above).
+  Landing in `PENDING_PAYMENT` sends the requester a "we're on it, payment is being processed" Slack DM
+  (`notifyRequesterOfPendingPayment`) instead of a flat "approved" one. `RequestsService.attachProof`
+  (Finance/Admin only, `POST /requests/:id/proof`) — now gated on `status === PENDING_PAYMENT`, not
+  `APPROVED` — is FM's single action for "send the money and mark it done": upload the
+  transaction/receipt image, which runs the same OCR pipeline Slack attachments use (`OcrService`, its
+  own `OcrModule` — see below), creates a real `Attachment`, sets the request to `COMPLETED`, and sends
+  the requester a second, distinct "payment has been sent" DM (`notifyRequesterOfPaymentSent`).
+  `BudgetsService.getReservations` keys off `PENDING_PAYMENT` (not `APPROVED`) with zero attachments to
+  compute "reserved" on the Finance dashboard; the moment `attachProof` runs, it naturally drops out of
+  that query and `getTransactions` (status in `[APPROVED, COMPLETED]`) picks it up as spent instead — a
+  given dollar is still always reserved OR spent, never both, with no separate state machine for it.
+  Both `RequestsService`'s `OPEN_ROUTED_STATUSES`/`OPEN_FOR_DEDUP_STATUSES` include `PENDING_PAYMENT` —
+  it's still "open" for the progress-report and duplicate-merge tools below.
 - **`OcrService` was split out of `SlackModule` into its own `OcrModule`** (`backend/src/modules/slack/ocr.module.ts`,
   file itself unmoved) specifically so `RequestsModule` could use it too (for `attachProof`) without a
   circular import — `SlackModule` already imports `RequestsModule`. If you need OCR somewhere new, import
@@ -193,6 +204,97 @@ Run: `npm install` at root, then `npm run dev:backend` / `npm run dev:frontend`.
   it for the first time this session. Don't "fix" this by adding cascade — losing audit records when a
   user is deleted is the actual bug; delete `Approval` rows explicitly first instead (see any `_qa-*.ts`
   cleanup for the pattern: `deleteMany` approvals by `requestId` before deleting the tenant).
+- **A request that never finds anyone to route it now escalates to `SYSTEM_ADMIN`, instead of silently
+  auto-completing (added 2026-08-24)**: `RequestsService.runPipeline`'s `$0`, no-`routedRoleId` branch —
+  `routeToRoleName` omitted or didn't match any configured `EmployeeRole` — sets `ESCALATED` (step
+  "Escalated — No Matching Role") rather than `COMPLETED`. `RequestsService.decideEscalatedStage`
+  disambiguates which escalation step to complete (`completeLatestInProgressStep`, not a hardcoded step
+  name) since escalation now has two distinct reasons — this one, and the pre-existing "no finance
+  delegate covers this amount." Same spirit as `EmployeeRolesService.notifyRoleForRequest`'s own
+  SYSTEM_ADMIN fallback (see below) — nothing filed through this app is allowed to just disappear with
+  no human ever seeing it.
+- **Availability/on-leave routing fallback (added 2026-08-26)**: `User.isOnLeave` — a manually-toggled
+  boolean, distinct from `isActive` (account blocked/enabled) — is set by the employee themselves
+  (`PATCH /users/me/leave-status`), a `SYSTEM_ADMIN` on anyone's behalf (`PATCH /users/:id/leave-status`,
+  `UsersService.setOnLeave`), or conversationally via the assistant's `set_my_leave_status` tool (no
+  literal Slack presence sync — deliberately rejected as too noisy; a 30-min-idle "Away" isn't the same
+  as being out of office). `EmployeeRolesService.getUnavailableUserIds` (renamed from the older,
+  narrower `getUsersOnLeave`) unions this flag with the pre-existing "on an approved formal leave
+  request covering today" check (`Request.leaveStartDate`/`leaveEndDate`) to decide who to skip when
+  routing — feeding the same `notifyRoleForRequest` SYSTEM_ADMIN fallback described below, so a role
+  whose only holder is on leave reroutes to admin exactly like a role nobody holds at all.
+- **Departments are now a real admin-managed catalog, not just free text (added 2026-08-25)**: the
+  existing `Budget` model doubles as the department catalog — `BudgetsService.listDepartmentNames`
+  (`GET /budgets/department-names`, open to any authenticated user, not just Finance-visible roles) feeds
+  every department field in the frontend (`AddEmployeeForm`, the per-employee row editor in
+  `admin/roles/page.tsx`, `profile/page.tsx`) as a `<select>` instead of free text, so it can't drift
+  from `Budget.departmentScope` the way a typed string could. `BudgetsService.remove`
+  (`DELETE /budgets/:id`, `SYSTEM_ADMIN` only) just deletes the `Budget` row — every other reference to a
+  department name (`Request.budgetDepartment`, `User.department`, `FinanceDelegation.departmentScope`) is
+  a plain string, not an FK, so removing it only stops it appearing in future dropdowns and never touches
+  history.
+- **Personal Team Lead is a third, distinct "who's in charge" concept (added 2026-08-25)** — alongside
+  `Role.TEAM_LEAD` (the fixed access tier `RolesGuard` checks) and an `EmployeeRole` "Team Lead" tag (a
+  shared, unowned catalog label): `User.teamLeadId` is a real 1:1 self-relation, admin-assigned via
+  `PATCH /users/:id/team-lead` (`UsersService.setTeamLead`), pointing at the specific person who is this
+  employee's team lead. `EmployeeRolesService.notifyTeamLead` pings that person directly — independent of
+  the `EmployeeRole` catalog and its own SYSTEM_ADMIN fallback, since a personal relationship has no
+  "nobody holds this" case, only "unset." `file_request`'s `notifyTeamLead` boolean drives it: the system
+  prompt sets it true for every leave/remote-work request (alongside `routeToRoleName: HR`, so both fire,
+  not just one) and for any other query clearly meant for "my team lead" — see `SYSTEM_INSTRUCTION`'s
+  "Horizontal queries" and file_request bullets, which no longer treat "team lead" as something an
+  `EmployeeRole` catalog entry could represent.
+- **Role-routed Slack messages are LLM-authored, not templated, and never leak an internal ID (added
+  2026-08-24)**: `file_request`'s `routingSummary` field is the model's own rewritten sentence describing
+  the ask, written to read as a continuation of the requester's name (e.g. "Ali Hamza is facing a wifi
+  issue, can you check what's wrong?") — `EmployeeRolesService.notifyRoleForRequest` sends
+  `` `${requesterName} ${input.summary}` `` verbatim, with a plain-restatement fallback only if the model
+  omitted it. No request ID, and no "approval not needed" language, ever appears in these messages —
+  `requiresApproval` only ever affects `Request.status`/UI copy, never the Slack text itself.
+- **Purchase/expense requests need a stated cost before they're filed — this is prompt behavior, not a
+  code-level gate (added 2026-08-24)**: `SYSTEM_INSTRUCTION`'s FILING DECISIONS section tells the model
+  to ask "how much?" before calling `file_request` for a purchase/reimbursement, the same way it already
+  required leave dates. The actual money *decision* always runs through `statedAmount`/Finance (see
+  `PENDING_PAYMENT` above) even when a role is also routed for visibility (e.g. IT Support notified about
+  a router purchase Finance decides) — a role is never the approver for a dollar amount. When the user
+  gives a range ("$10 to $20"), the prompt tells the model to use the higher number so enough is reserved
+  to cover it — also prompt-level, not validated server-side.
+- **Assistant status-lookup and progress-report tools close the "what's the status of my thing" and
+  "IT says it's fixed" loops (added 2026-08-24)**: `get_my_request_status`
+  (`RequestsService.findRecentForRequester`) only ever returns the calling user's own requests, and
+  includes `progressNote`/`additionalReporters` alongside `status` so a stale approval status doesn't
+  hide a more current free-text update. `report_request_progress`
+  (`RequestsService.findOpenRoutedForUser`/`recordProgressNote`) lets whoever holds the routed role (or
+  `SYSTEM_ADMIN`) log an update against a request routed to them; `isResolved: true` sets `COMPLETED` and
+  DMs the original requester the rewritten note (`notifyRequesterOfProgress`). Separately,
+  `RequestsService.decide()` now DMs every holder of a request's routed role the moment Finance actually
+  approves the money (`notifyRoutedRoleOfApproval`, fired for both `APPROVED` and `PENDING_PAYMENT`) —
+  visibility at filing time ("IT was notified") doesn't mean "IT can start," so this is a second, distinct
+  ping for "the money came through, go do the work."
+- **Duplicate-issue merging, not duplicate tickets, for the same real-world problem (added 2026-08-24)**:
+  before filing a shared/observable issue (a facilities problem, a broken shared resource — never
+  something inherently personal like leave or a reimbursement), the model calls
+  `find_similar_open_requests` (`RequestsService.findRecentOpenForDedup`, 30-day window,
+  `OPEN_FOR_DEDUP_STATUSES`) and judges for itself whether a result is genuinely the same underlying
+  problem (never merely the same category). A genuine match calls `join_existing_request`
+  (`RequestsService.addReporterToRequest`) instead of `file_request`, appending to
+  `Request.additionalReporters` (display-only JSON, doesn't touch status/routing) rather than creating a
+  new row. `find_similar_open_requests`'s results are for the model's own filing judgment only — never to
+  be relayed/listed back to a user asking "has anyone else reported this?"; that's covered explicitly in
+  `SYSTEM_INSTRUCTION`'s NEVER REVEAL section, the same privacy posture as every other user's private
+  data.
+- **A blocked (`isActive: false`) user can't use the Slack bot either, not just the web app (added
+  2026-08-25)**: `JwtAuthGuard` already re-checks `isActive` on every web request, but the Slack bot has
+  no equivalent per-request auth — `SlackService.handleEvent` checks `requester.isActive` itself right
+  after resolving/provisioning the Slack user and silently drops the message (logged, not replied to) if
+  they're blocked, so a blocked employee can't keep filing requests or reading policy through Slack.
+- **Broadcasts can target fixed `Role`s as well as `EmployeeRole` tags, and a composer pill for a role
+  nobody currently qualifies for is disabled, not just ignorable (added 2026-08-24)**:
+  `SendBroadcastDto`'s `employeeRoleIds` and `roles` (`Role[]`) are both optional now (validated via
+  `OR` in `EmployeeRolesService.broadcast`) — the composer shows two separate pill groups ("Custom roles"
+  from the tenant's `EmployeeRole` catalog, "Access roles" from the fixed `Role` enum), each pill disabled
+  client-side when nobody currently holds it, so an admin can't send a message to a target that was
+  already known to reach nobody.
 
 ## What's real vs. stubbed (don't assume otherwise)
 
@@ -204,9 +306,13 @@ Real: auth (password + both Slack flows), RBAC, tenant CRUD + isolation, finance
 grant/revoke/audit trail, request creation (web + Slack, with attachment download), Swagger docs,
 employee roles + broadcast/auto-routing (above).
 - `AssistantService` — a real LangGraph tool-calling agent over `ChatGoogleGenerativeAI` (Gemini,
-  `llm.model` config, default `gemini-2.5-flash`), with two tools (`search_policy`, `file_request`);
-  see `backend/src/modules/assistant/agent/`. Falls back to a canned reply (`FALLBACK_REPLY`) only if
-  the graph invocation itself throws.
+  `llm.model` config, default `gemini-2.5-flash`), with eight tools built in `buildAssistantTools`
+  (`backend/src/modules/assistant/agent/assistant.tools.ts`): `search_policy`,
+  `find_similar_open_requests`, `file_request`, `join_existing_request`, `get_budget_summary`,
+  `get_my_request_status`, `report_request_progress`, `set_my_leave_status` — see their individual
+  bullets above for what each does; the list keeps growing, so check this file against the actual
+  return value of `buildAssistantTools` before trusting it as exhaustive. Falls back to a canned reply
+  (`FALLBACK_REPLY`) only if the graph invocation itself throws.
 - `OcrService.extractFields` (`backend/src/modules/slack/ocr.service.ts`) — a real Gemini vision call
   (`LlmService.generateJson`) that extracts merchant/amount/currency/line items/tax ID from an
   uploaded receipt/invoice image or PDF.
@@ -230,17 +336,21 @@ employee roles + broadcast/auto-routing (above).
   plain text (`file.text()` on a PDF yields binary noise, not extracted text).
 - The full approval state machine is implemented in `RequestsService`: `runPipeline` (policy citation +
   amount check) routes a request through `PENDING_MANAGER_APPROVAL` → (`PENDING_FINANCE_APPROVAL` if a
-  `FinanceDelegation` covers the department/amount, else `ESCALATED`) → `APPROVED`/`REJECTED`, with an
-  `Approval` row and `AuditLog` entry recorded at every stage (`RequestsService.decide` and its
-  `decideManagerStage`/`decideFinanceStage`/`decideEscalatedStage` helpers).
-  **The amount check is a hard gate, not just a delegation lookup**: `runPipeline` sums each
-  attachment's OCR-extracted `totalAmount`; if that sum is `0` the request is set straight to
-  `COMPLETED` and never reaches `PENDING_MANAGER_APPROVAL` at all. Since attachments currently only
-  arrive via Slack file ingestion, any text-only request — including every request filed through the
-  Assistant UI, and any Slack leave/general request with no receipt attached — auto-completes with no
-  manager or finance decision. Don't assume "filed a request" implies "went through approval"; check
-  whether it carried a priced attachment. `ESCALATED` is only ever resolved by a `SYSTEM_ADMIN`,
-  directly to `APPROVED`/`REJECTED` (`decideEscalatedStage`) — it does not return to a pending stage.
+  `FinanceDelegation` covers the department/amount, else `ESCALATED`) → `APPROVED`/`PENDING_PAYMENT`
+  (verified vs. unverified amount — see above) → (for `PENDING_PAYMENT`) `COMPLETED` once `attachProof`
+  runs, or `REJECTED` at any decision point, with an `Approval` row and `AuditLog` entry recorded at
+  every stage (`RequestsService.decide` and its
+  `decideManagerStage`/`decideFinanceStage`/`decideEscalatedStage`/`decideRoleStage` helpers).
+  **`runPipeline`'s `$0`-attachment branch is no longer a silent auto-complete** (that was the old
+  behavior — re-verify against current code before assuming otherwise): a `$0` request with a
+  `statedAmount` still routes to `PENDING_FINANCE_APPROVAL`; a `$0` request with no `statedAmount` either
+  goes to `PENDING_ROLE_APPROVAL`/`NOTED` if it was routed to an `EmployeeRole`, or `ESCALATED` if it
+  wasn't routed anywhere at all — see the "never disappears" bullet above. A genuinely $0,
+  unrouted-and-unstated request is now the rare case, not the common one; most Assistant UI/Slack
+  text-only requests carry either a `statedAmount` or a `routeToRoleName` because `SYSTEM_INSTRUCTION`
+  requires one before filing. `ESCALATED` is only ever resolved by a `SYSTEM_ADMIN`, directly to
+  `APPROVED`/`PENDING_PAYMENT`/`REJECTED` (`decideEscalatedStage`, same verified/unverified branch as
+  Finance) — it does not return to a pending stage.
 
 Still stubbed:
 - Slack webhook signature verification (`SLACK_SIGNING_SECRET`) is TODO'd, not implemented — the
