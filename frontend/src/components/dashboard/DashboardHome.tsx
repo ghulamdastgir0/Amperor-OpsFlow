@@ -52,7 +52,7 @@ const SECTIONS = [
   },
 ];
 
-export default function Home() {
+export function DashboardHome() {
   const { user } = useAuth();
   const [requests, setRequests] = useState<OpsRequest[] | null>(null);
 

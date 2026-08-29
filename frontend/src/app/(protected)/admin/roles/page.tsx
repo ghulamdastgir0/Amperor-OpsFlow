@@ -628,34 +628,75 @@ function EmployeeAssignments({
       {users.length === 0 ? (
         <p className="text-sm text-muted">No employees yet.</p>
       ) : (
-        <div className="flex flex-col divide-y divide-border rounded-xl border border-border">
+        <div className="flex flex-col gap-3">
           {users.map((u) => (
-            <div key={u.id} className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center">
-              <div className="flex items-center gap-3 sm:w-56 sm:shrink-0">
-                <Avatar name={u.name || u.email} />
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-foreground">{u.name}</p>
-                  <p className="truncate text-xs text-muted">{u.email}</p>
+            <div key={u.id} className="rounded-xl border border-border bg-surface p-4">
+              {/* Header: identity + status/actions — always on one row, never
+                  disturbed by however many role tags or fields wrap below. */}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <Avatar name={u.name || u.email} />
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-foreground">{u.name}</p>
+                    <p className="truncate text-xs text-muted">{u.email}</p>
+                  </div>
+                </div>
+
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={pendingLeaveUserId === u.id}
+                    onClick={() => applyLeaveChange(u, !u.isOnLeave)}
+                    title="Toggle on-leave status — while on leave, requests routed to a role they hold are rerouted to a system admin instead"
+                    className="disabled:opacity-50"
+                  >
+                    <Badge tone={u.isOnLeave ? "amber" : "green"}>{u.isOnLeave ? "On Leave" : "Available"}</Badge>
+                  </button>
+
+                  {u.id !== currentUser?.userId && (
+                    <>
+                      <Badge tone={u.isActive ? "green" : "slate"}>{u.isActive ? "Active" : "Inactive"}</Badge>
+                      <button
+                        type="button"
+                        className="text-xs font-medium text-muted transition-colors hover:text-foreground"
+                        onClick={() => setPendingBlockToggle(u)}
+                      >
+                        {u.isActive ? "Block" : "Unblock"}
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs font-medium text-danger transition-opacity hover:opacity-80"
+                        onClick={() => setPendingRemove(u)}
+                      >
+                        Remove
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
 
-              <div className="flex flex-1 flex-wrap items-center gap-2">
-                <select
-                  value={u.role}
-                  disabled={isChangingRole}
-                  onChange={(e) => handleRoleSelect(u, e.target.value as Role)}
-                  title="Access role — controls what they can do in the app"
-                  className="rounded-full border border-info/30 bg-info-tint px-2.5 py-1 text-xs font-medium text-info-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50"
-                >
-                  {ROLE_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
+              {/* Fields: fixed 3-column grid so every row's controls line up
+                  regardless of label/value length. */}
+              <div className="mt-3.5 grid gap-3 border-t border-border pt-3.5 sm:grid-cols-3">
+                <label className="flex flex-col gap-1.5 text-sm text-foreground">
+                  <span className="font-medium">Access role</span>
+                  <select
+                    value={u.role}
+                    disabled={isChangingRole}
+                    onChange={(e) => handleRoleSelect(u, e.target.value as Role)}
+                    title="Controls what they can do in the app"
+                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {ROLE_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
                 <DepartmentPicker
-                  variant="pill"
+                  label="Department"
                   value={u.department ?? ""}
                   disabled={pendingDepartmentUserId === u.id}
                   onChange={(value) => applyDepartmentChange(u, value)}
@@ -663,31 +704,43 @@ function EmployeeAssignments({
                   onCreated={onDepartmentCreated}
                   allowCreate
                   emptyLabel="No department"
-                  title="Department — used to route expense approvals to the right delegate"
+                  title="Used to route expense approvals to the right delegate"
+                  className="w-full"
                 />
 
-                <select
-                  value={u.teamLeadId ?? ""}
-                  disabled={pendingTeamLeadUserId === u.id}
-                  onChange={(e) => applyTeamLeadChange(u, e.target.value)}
-                  title="Team lead — notified directly on this employee's leave requests and 'ask my team lead' queries"
-                  className="rounded-full border border-border bg-surface px-2.5 py-1 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50"
-                >
-                  <option value="">No team lead</option>
-                  {users
-                    .filter((candidate) => candidate.id !== u.id)
-                    .map((candidate) => (
-                      // Email always shown, not just on a name collision — two
-                      // employees sharing a name (e.g. two "Ghulam Dastgir"s)
-                      // were otherwise indistinguishable in this list, so
-                      // there was no reliable way to tell which one you'd
-                      // actually assigned (caught in testing 2026-08-26).
-                      <option key={candidate.id} value={candidate.id}>
-                        {candidate.name} ({candidate.email})
-                      </option>
-                    ))}
-                </select>
+                <label className="flex flex-col gap-1.5 text-sm text-foreground">
+                  <span className="font-medium">Team lead</span>
+                  <select
+                    value={u.teamLeadId ?? ""}
+                    disabled={pendingTeamLeadUserId === u.id}
+                    onChange={(e) => applyTeamLeadChange(u, e.target.value)}
+                    title="Notified directly on this employee's leave requests and 'ask my team lead' queries"
+                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <option value="">No team lead</option>
+                    {users
+                      .filter((candidate) => candidate.id !== u.id)
+                      .map((candidate) => (
+                        // Email always shown, not just on a name collision — two
+                        // employees sharing a name (e.g. two "Ghulam Dastgir"s)
+                        // were otherwise indistinguishable in this list, so
+                        // there was no reliable way to tell which one you'd
+                        // actually assigned (caught in testing 2026-08-26).
+                        <option key={candidate.id} value={candidate.id}>
+                          {candidate.name} ({candidate.email})
+                        </option>
+                      ))}
+                  </select>
+                </label>
+              </div>
 
+              {/* Custom role tags — own row, so wrapping here never shifts
+                  the fields grid above or the header below. */}
+              <div className="mt-3.5 flex flex-wrap items-center gap-2 border-t border-border pt-3.5">
+                <span className="text-xs font-medium text-muted">Roles</span>
+                {(u.employeeRoles ?? []).length === 0 && (
+                  <span className="text-xs text-muted-foreground">None yet</span>
+                )}
                 {(u.employeeRoles ?? []).map((r) => (
                   <span
                     key={r.id}
@@ -705,40 +758,7 @@ function EmployeeAssignments({
                     </button>
                   </span>
                 ))}
-
                 <AddRoleTag user={u} roles={roles} onAdd={(roleId) => addTag(u, roleId)} />
-              </div>
-
-              <div className="flex shrink-0 items-center gap-3 sm:ml-auto">
-                <button
-                  type="button"
-                  disabled={pendingLeaveUserId === u.id}
-                  onClick={() => applyLeaveChange(u, !u.isOnLeave)}
-                  title="Toggle on-leave status — while on leave, requests routed to a role they hold are rerouted to a system admin instead"
-                  className="disabled:opacity-50"
-                >
-                  <Badge tone={u.isOnLeave ? "amber" : "green"}>{u.isOnLeave ? "On Leave" : "Available"}</Badge>
-                </button>
-
-                {u.id !== currentUser?.userId && (
-                  <>
-                    <Badge tone={u.isActive ? "green" : "slate"}>{u.isActive ? "Active" : "Inactive"}</Badge>
-                    <button
-                      type="button"
-                      className="text-xs font-medium text-muted hover:text-foreground"
-                      onClick={() => setPendingBlockToggle(u)}
-                    >
-                      {u.isActive ? "Block" : "Unblock"}
-                    </button>
-                    <button
-                      type="button"
-                      className="text-xs font-medium text-danger transition-opacity hover:opacity-80"
-                      onClick={() => setPendingRemove(u)}
-                    >
-                      Remove
-                    </button>
-                  </>
-                )}
               </div>
             </div>
           ))}
