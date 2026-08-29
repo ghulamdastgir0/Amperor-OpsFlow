@@ -7,6 +7,24 @@ import { setAuthToken } from "@/lib/api";
 import { getStoredUser } from "@/lib/auth";
 import { useQueryParam } from "@/hooks/useQueryParam";
 
+// Shape-only sanity check for the token the backend redirects us here with —
+// three base64url segments and, if it carries `exp`, not already expired. The
+// server is still the real authority (every API call re-verifies the JWT); this
+// just stops an obviously-junk `?token=` value from being written to storage.
+function isPlausibleJwt(token: string): boolean {
+  const parts = token.split(".");
+  if (parts.length !== 3 || parts.some((p) => p.length === 0)) return false;
+  try {
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/"))) as {
+      exp?: number;
+    };
+    if (payload.exp && Date.now() >= payload.exp * 1000) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export default function AuthCallbackPage() {
   const router = useRouter();
   const token = useQueryParam("token");
@@ -18,8 +36,14 @@ export default function AuthCallbackPage() {
 
   useEffect(() => {
     if (token) {
-      setAuthToken(token);
-      router.replace("/assistant");
+      // Only accept something that is at least shaped like a non-expired JWT,
+      // and scrub it out of the address bar immediately so it doesn't linger
+      // in history / get sent in a Referer header.
+      if (isPlausibleJwt(token)) {
+        setAuthToken(token);
+      }
+      window.history.replaceState({}, "", "/auth/callback");
+      router.replace(isPlausibleJwt(token) ? "/assistant" : "/login?error=slack_login_failed");
     } else if (alreadySignedIn) {
       router.replace("/");
     } else if (connected !== "1") {

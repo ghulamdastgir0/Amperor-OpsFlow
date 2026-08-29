@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MinLength } from 'class-validator';
+import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class ChangePasswordDto {
   // Optional only because a Slack-only user (passwordHash null) is setting a
@@ -6,9 +6,11 @@ export class ChangePasswordDto {
   // requires it whenever a hash already exists.
   @IsString()
   @IsOptional()
+  @MaxLength(200)
   currentPassword?: string;
 
   @IsString()
   @MinLength(8)
+  @MaxLength(200)
   newPassword: string;
 }

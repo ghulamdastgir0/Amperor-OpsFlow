@@ -53,8 +53,21 @@ export default function LoginPage() {
       const result = await authApi.login({ tenantId, email, password });
       setAuthToken(result.accessToken);
       router.push("/assistant");
-    } catch {
-      setSubmitError("Invalid credentials. Please try again.");
+    } catch (err) {
+      const res = (err as { response?: { status?: number; data?: { message?: string | string[] } } })
+        .response;
+      const serverMessage = Array.isArray(res?.data?.message)
+        ? res?.data?.message.join(" ")
+        : res?.data?.message;
+      // A 400 is a malformed field (e.g. Workspace ID isn't a UUID) — surface
+      // the actual reason instead of a misleading "invalid credentials".
+      setSubmitError(
+        res?.status === 400
+          ? serverMessage || "Please check the workspace ID, email, and password format."
+          : res?.status === 429
+            ? "Too many attempts. Wait a minute and try again."
+            : "Invalid credentials. Please try again.",
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -103,11 +116,12 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
             <Input
-              label="Tenant ID"
-              hint="Your workspace identifier"
+              label="Workspace ID"
+              hint="The workspace UUID your administrator gave you"
               value={tenantId}
               onChange={(e) => setTenantId(e.target.value)}
-              placeholder="e.g. acme-corp"
+              placeholder="e.g. 3f9a2c10-8b4e-4d21-9c77-1a2b3c4d5e6f"
+              autoComplete="off"
               required
             />
             <Input

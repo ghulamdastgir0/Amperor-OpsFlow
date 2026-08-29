@@ -14,7 +14,13 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Field";
 import { SkeletonCard } from "@/components/ui/Skeleton";
-import { REQUEST_STATUS_DISPLAY } from "@/lib/statusDisplay";
+import { REQUEST_STATUS_DISPLAY, currency } from "@/lib/statusDisplay";
+
+const CHANNEL_LABEL: Record<string, string> = {
+  slack: "via Slack",
+  assistant_ui: "via Assistant",
+  email: "via Email",
+};
 
 // Client-side UX only — the backend re-checks role + (for finance) active
 // FinanceDelegation coverage on every decision; this just decides whether to
@@ -34,6 +40,9 @@ export function RequestDetail({ requestId }: { requestId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [showReasonFor, setShowReasonFor] = useState<"REJECTED" | null>(null);
+  // Approve is a terminal money/authorization decision — require a second,
+  // deliberate click ("Confirm approve") the same way Reject already does.
+  const [approveArmed, setApproveArmed] = useState(false);
   const [decidingAs, setDecidingAs] = useState<"APPROVED" | "REJECTED" | null>(null);
   const [isUploadingProof, setIsUploadingProof] = useState(false);
   const proofInputRef = useRef<HTMLInputElement>(null);
@@ -62,6 +71,10 @@ export function RequestDetail({ requestId }: { requestId: string }) {
       setShowReasonFor("REJECTED");
       return;
     }
+    if (decision === "APPROVED" && !approveArmed) {
+      setApproveArmed(true);
+      return;
+    }
     setDecidingAs(decision);
     try {
       const updated = await requestsApi.decideRequest(requestId, decision, reason || undefined);
@@ -72,6 +85,7 @@ export function RequestDetail({ requestId }: { requestId: string }) {
       load();
       setReason("");
       setShowReasonFor(null);
+      setApproveArmed(false);
       toast.success(decision === "APPROVED" ? "Request approved." : "Request rejected.");
       if (updated.budgetWarning) toast.info(updated.budgetWarning);
     } catch (err) {
@@ -84,6 +98,7 @@ export function RequestDetail({ requestId }: { requestId: string }) {
         409: "This request is no longer awaiting approval.",
       };
       toast.error(detail || (response?.status && fallbacks[response.status]) || "Could not record your decision.");
+      setApproveArmed(false);
     } finally {
       setDecidingAs(null);
     }
@@ -182,8 +197,54 @@ export function RequestDetail({ requestId }: { requestId: string }) {
               <Badge tone={status.tone}>{status.label}</Badge>
             </div>
             <p className="mt-4 text-xs text-muted">
-              Submitted {new Date(request.createdAt).toLocaleString()}
+              Filed by{" "}
+              <span className="font-medium text-foreground">
+                {request.requester ? request.requester.name : "Unknown"}
+              </span>
+              {request.requester?.email && ` (${request.requester.email})`}
+              {" · "}
+              {CHANNEL_LABEL[request.channel] ?? request.channel} · Submitted{" "}
+              {new Date(request.createdAt).toLocaleString()}
             </p>
+
+            {(request.statedAmount != null ||
+              request.budgetDepartment ||
+              request.routedRole ||
+              request.leaveStartDate) && (
+              <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 rounded-lg border border-border bg-surface-2 px-4 py-3 text-sm sm:grid-cols-3">
+                {request.statedAmount != null && (
+                  <div>
+                    <dt className="text-xs text-muted">Amount (stated)</dt>
+                    <dd className="font-medium text-foreground">
+                      {currency(Number(request.statedAmount))}
+                      <span className="ml-1 text-xs font-normal text-muted">unverified</span>
+                    </dd>
+                  </div>
+                )}
+                {request.budgetDepartment && (
+                  <div>
+                    <dt className="text-xs text-muted">Budget</dt>
+                    <dd className="font-medium text-foreground">{request.budgetDepartment}</dd>
+                  </div>
+                )}
+                {request.routedRole && (
+                  <div>
+                    <dt className="text-xs text-muted">Routed to</dt>
+                    <dd className="font-medium text-foreground">{request.routedRole.name}</dd>
+                  </div>
+                )}
+                {request.leaveStartDate && (
+                  <div>
+                    <dt className="text-xs text-muted">Leave dates</dt>
+                    <dd className="font-medium text-foreground">
+                      {new Date(request.leaveStartDate).toLocaleDateString()}
+                      {request.leaveEndDate &&
+                        ` – ${new Date(request.leaveEndDate).toLocaleDateString()}`}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            )}
             {request.additionalReporters && request.additionalReporters.length > 0 && (
               <p className="mt-2 text-xs text-muted">
                 Also reported by {request.additionalReporters.map((r) => r.name).join(", ")}
@@ -275,23 +336,33 @@ export function RequestDetail({ requestId }: { requestId: string }) {
                   className="mb-3"
                 />
               )}
+              {approveArmed && showReasonFor !== "REJECTED" && (
+                <p className="mb-3 text-xs text-muted">
+                  {request.statedAmount != null
+                    ? `This authorizes ${currency(Number(request.statedAmount))}. Click “Confirm approve” to proceed.`
+                    : "Click “Confirm approve” to proceed."}
+                </p>
+              )}
               <div className="flex gap-2">
                 <Button
                   variant="primary"
                   className="flex-1 bg-success hover:opacity-90 active:opacity-80"
                   isLoading={decidingAs === "APPROVED"}
-                  disabled={decidingAs !== null}
+                  disabled={decidingAs !== null || showReasonFor === "REJECTED"}
                   onClick={() => decide("APPROVED")}
                 >
                   {decidingAs !== "APPROVED" && <Check className="size-4" aria-hidden />}
-                  Approve
+                  {approveArmed ? "Confirm approve" : "Approve"}
                 </Button>
                 <Button
                   variant="outline"
                   className="flex-1 border-danger/30 text-danger hover:bg-danger-tint"
                   isLoading={decidingAs === "REJECTED"}
                   disabled={decidingAs !== null}
-                  onClick={() => decide("REJECTED")}
+                  onClick={() => {
+                    setApproveArmed(false);
+                    decide("REJECTED");
+                  }}
                 >
                   {decidingAs !== "REJECTED" && <X className="size-4" aria-hidden />}
                   {showReasonFor === "REJECTED" ? "Confirm reject" : "Reject"}

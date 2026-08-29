@@ -8,6 +8,7 @@ import {
   Post,
 } from '@nestjs/common';
 import { ApiExcludeController, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { Public } from '../../common/decorators/public.decorator';
 import { PlatformAdminOnly } from '../../common/decorators/platform-admin.decorator';
 import { CurrentPlatformAdmin } from '../../common/decorators/current-user.decorator';
@@ -29,6 +30,7 @@ export class PlatformAdminController {
   constructor(private readonly platformAdminService: PlatformAdminService) {}
 
   @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('auth/login')
   login(@Body() dto: PlatformLoginDto) {
     return this.platformAdminService.login(dto);

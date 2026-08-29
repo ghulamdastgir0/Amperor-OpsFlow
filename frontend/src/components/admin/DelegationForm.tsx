@@ -49,12 +49,13 @@ export function DelegationForm({
     <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
       <Select
         label="Delegate to"
+        hint="Anyone in the workspace — typically a manager or lead, but also an admin's backup when no finance manager exists"
         value={delegateManagerId}
         onChange={(e) => setDelegateManagerId(e.target.value)}
         required
       >
         <option value="" disabled>
-          Choose a manager or team lead…
+          Choose who to delegate to…
         </option>
         {users.map((u) => (
           <option key={u.id} value={u.id}>

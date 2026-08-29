@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { RequestChannel } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
@@ -12,6 +13,9 @@ import { SendMessageDto } from './dto/send-message.dto';
 export class AssistantController {
   constructor(private readonly assistantService: AssistantService) {}
 
+  // Each message triggers a paid LLM call — cap per user/IP well below any
+  // human rate so a script can't rack up spend.
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Post('messages')
   sendMessage(
     @CurrentUser() user: AuthenticatedUser,
@@ -36,7 +40,7 @@ export class AssistantController {
 
   @Get('conversations/:id/messages')
   getMessages(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.assistantService.getMessages(user.tenantId, id);
+    return this.assistantService.getMessages(user.tenantId, id, user.userId);
   }
 
   @Get('requests/:id/timeline')

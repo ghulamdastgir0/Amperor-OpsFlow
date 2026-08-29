@@ -67,6 +67,23 @@ const SELECT_CLASSES =
 const NONE_FILTER = "__none__";
 const EMPLOYEE_PAGE_SIZE = 5;
 
+// This screen covers three distinct admin jobs — managing people, curating the
+// role catalog, and sending role-targeted messages. They share one data load
+// but are shown one at a time (tab in the URL as ?view=) so the page isn't a
+// single long scroll, especially on mobile.
+const VIEWS = [
+  { key: "employees", label: "Employees" },
+  { key: "catalog", label: "Role catalog" },
+  { key: "messaging", label: "Messaging" },
+] as const;
+type RolesView = (typeof VIEWS)[number]["key"];
+
+function readInitialView(): RolesView {
+  if (typeof window === "undefined") return "employees";
+  const v = new URLSearchParams(window.location.search).get("view");
+  return VIEWS.some((x) => x.key === v) ? (v as RolesView) : "employees";
+}
+
 function RoleRow({
   role,
   onUpdated,
@@ -126,8 +143,12 @@ function RoleRow({
       toast.success("Role removed.");
       setPendingDelete(false);
       closeDetail();
-    } catch {
-      toast.error("Could not remove this role.");
+    } catch (err) {
+      // Close the dialog either way — a failure here is deterministic (e.g.
+      // the role is still referenced), so leaving it open to "retry" just
+      // strands the user behind a modal with the reason shown only in a toast.
+      setPendingDelete(false);
+      toast.error(extractErrorMessage(err) ?? "Could not remove this role.");
     } finally {
       setIsDeleting(false);
     }
@@ -679,6 +700,10 @@ function EmployeeAssignments({
       toast.success(`${pendingRemove.name} removed.`);
       setPendingRemove(null);
     } catch (err) {
+      // Dismiss the confirm dialog on failure too — the common case here is
+      // "this employee has history, block them instead", which won't change
+      // on a retry, so keeping the modal open just hides the toast behind it.
+      setPendingRemove(null);
       toast.error(extractErrorMessage(err) ?? "Could not remove this employee.");
     } finally {
       setIsRemoving(false);
@@ -1066,6 +1091,19 @@ function BroadcastComposer({
     });
   }
 
+  // Access roles that actually have a reachable (active + Slack-linked)
+  // holder — the only ones a broadcast could land on.
+  const reachableFixedRoles = ROLE_OPTIONS.map((o) => o.value).filter((role) =>
+    users.some((u) => u.role === role && u.isActive && u.slackUserId),
+  );
+  const everyoneSelected =
+    reachableFixedRoles.length > 0 &&
+    reachableFixedRoles.every((r) => selectedFixedRoles.has(r));
+
+  function toggleEveryone() {
+    setSelectedFixedRoles(everyoneSelected ? new Set() : new Set(reachableFixedRoles));
+  }
+
   async function handleSend(event: FormEvent) {
     event.preventDefault();
     if (selectedRoleIds.size === 0 && selectedFixedRoles.size === 0) {
@@ -1141,7 +1179,21 @@ function BroadcastComposer({
         )}
 
         <div>
-          <p className="mb-1.5 text-xs font-medium text-muted">Access roles</p>
+          <div className="mb-1.5 flex items-center justify-between">
+            <p className="text-xs font-medium text-muted">Access roles</p>
+            <button
+              type="button"
+              onClick={toggleEveryone}
+              disabled={reachableFixedRoles.length === 0}
+              className={
+                everyoneSelected
+                  ? "rounded-full border border-primary bg-primary-tint px-2.5 py-1 text-xs font-medium text-primary disabled:opacity-50"
+                  : "rounded-full border border-border bg-surface px-2.5 py-1 text-xs font-medium text-muted hover:border-primary hover:text-primary disabled:opacity-50"
+              }
+            >
+              {everyoneSelected ? "Everyone selected" : "Select everyone"}
+            </button>
+          </div>
           <div className="flex flex-wrap gap-2">
             {ROLE_OPTIONS.map((option) => {
               const isSelected = selectedFixedRoles.has(option.value);
@@ -1203,6 +1255,17 @@ export default function EmployeeRolesPage() {
   const [users, setUsers] = useState<User[] | null>(null);
   const [departmentOptions, setDepartmentOptions] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<RolesView>(readInitialView);
+
+  function selectView(next: RolesView) {
+    setView(next);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (next === "employees") url.searchParams.delete("view");
+      else url.searchParams.set("view", next);
+      window.history.replaceState({}, "", url.pathname + url.search);
+    }
+  }
 
   const load = useCallback(() => {
     Promise.all([employeeRolesApi.listRoles(), usersApi.listUsers()])
@@ -1263,8 +1326,8 @@ export default function EmployeeRolesPage() {
     return (
       <div>
         <PageHeader
-          title="Employee Roles & Messaging"
-          description="Tag employees by department/function and send role-targeted Slack messages."
+          title="Team & Messaging"
+          description="Manage employees, curate the role catalog, and send role-targeted Slack messages."
         />
         <Card>
           <SkeletonRows rows={4} cols={3} />
@@ -1276,8 +1339,8 @@ export default function EmployeeRolesPage() {
   return (
     <div>
       <PageHeader
-        title="Employee Roles & Messaging"
-        description="Tag employees by department/function and send role-targeted Slack messages."
+        title="Team & Messaging"
+        description="Manage employees, curate the role catalog, and send role-targeted Slack messages."
       />
 
       {error && (
@@ -1287,7 +1350,25 @@ export default function EmployeeRolesPage() {
         </div>
       )}
 
-      <div className="flex flex-col gap-8">
+      <div className="mb-6 inline-flex w-fit rounded-lg border border-border bg-surface-2 p-1">
+        {VIEWS.map((v) => (
+          <button
+            key={v.key}
+            type="button"
+            onClick={() => selectView(v.key)}
+            aria-current={view === v.key ? "page" : undefined}
+            className={
+              view === v.key
+                ? "rounded-md bg-surface px-3.5 py-1.5 text-sm font-medium text-foreground shadow-[var(--shadow-sm)]"
+                : "rounded-md px-3.5 py-1.5 text-sm font-medium text-muted transition-colors hover:text-foreground"
+            }
+          >
+            {v.label}
+          </button>
+        ))}
+      </div>
+
+      {view === "catalog" && (
         <RoleCatalog
           roles={roles}
           onCreated={(role) => setRoles((prev) => [...(prev ?? []), role])}
@@ -1314,7 +1395,9 @@ export default function EmployeeRolesPage() {
             );
           }}
         />
+      )}
 
+      {view === "employees" && (
         <EmployeeAssignments
           users={users}
           roles={roles}
@@ -1335,13 +1418,15 @@ export default function EmployeeRolesPage() {
           }
           onUserRemoved={(userId) => setUsers((prev) => prev?.filter((u) => u.id !== userId) ?? null)}
         />
+      )}
 
+      {view === "messaging" && (
         <BroadcastComposer
           roles={roles}
           users={users}
           onSent={() => employeeRolesApi.listRoles().then(setRoles).catch(() => {})}
         />
-      </div>
+      )}
     </div>
   );
 }

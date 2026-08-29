@@ -15,13 +15,16 @@ export function Badge({
   tone = "slate",
   children,
   className,
+  title,
 }: {
   tone?: BadgeTone;
   children: React.ReactNode;
   className?: string;
+  title?: string;
 }) {
   return (
     <span
+      title={title}
       className={cn(
         "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset whitespace-nowrap",
         TONE_CLASSES[tone],

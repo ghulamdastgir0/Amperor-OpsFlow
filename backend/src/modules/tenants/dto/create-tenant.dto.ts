@@ -1,4 +1,10 @@
-import { IsOptional, IsString, Matches } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 // Slack workspace IDs always look like T01ABCDE2F — a 'T' followed by 8-10
 // upper-case alphanumerics. This can't be checked against Slack itself here:
@@ -10,6 +16,8 @@ export const SLACK_TEAM_ID_PATTERN = /^T[A-Z0-9]{8,10}$/;
 
 export class CreateTenantDto {
   @IsString()
+  @MinLength(1)
+  @MaxLength(200)
   name: string;
 
   @IsString()

@@ -27,7 +27,7 @@ export default function DelegationsPage() {
     <div>
       <PageHeader
         title="Finance Manager Delegation"
-        description="Grant, delegate, or time-bound Finance Approval authority to a Team Lead or Department Manager."
+        description="Grant, delegate, or time-bound Finance Approval authority — up to a spend limit, for a department scope, with an optional expiry."
       />
 
       <div className="flex flex-col gap-8">

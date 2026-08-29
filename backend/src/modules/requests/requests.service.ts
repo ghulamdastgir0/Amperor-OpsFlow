@@ -44,6 +44,14 @@ const FINANCE_DECIDE_ROLES = new Set<Role>([
 // live in GCS and are only fetched via getAttachmentFile, so normal
 // request-detail reads never need to touch storage at all.
 const DETAIL_INCLUDE = {
+  // Who filed this — the request detail view has no other way to show that
+  // (requesterId alone is an opaque UUID). Selected narrowly, same as every
+  // other requester include in this file, so this never leaks a password
+  // hash or Slack token to whoever can see the request.
+  requester: { select: { id: true, name: true, email: true } },
+  // The EmployeeRole this was routed to, if any — the detail view shows it
+  // as "Routed to HR" rather than a bare UUID.
+  routedRole: { select: { id: true, name: true } },
   attachments: {
     select: {
       id: true,
@@ -305,11 +313,7 @@ export class RequestsService {
     });
 
     if (isResolved) {
-      await this.notifyRequesterOfProgress(
-        tenantId,
-        request.requester,
-        note,
-      );
+      await this.notifyRequesterOfProgress(tenantId, request.requester, note);
     }
     return updated;
   }
@@ -364,8 +368,7 @@ export class RequestsService {
 
   async findRecentOpenForDedup(tenantId: string, limit = 20) {
     const since = new Date(
-      Date.now() -
-        RequestsService.DEDUP_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+      Date.now() - RequestsService.DEDUP_WINDOW_DAYS * 24 * 60 * 60 * 1000,
     );
     return this.prisma.request.findMany({
       where: {
@@ -594,80 +597,96 @@ export class RequestsService {
     decision: FinalDecision,
     reason?: string,
   ) {
-    const request = await this.prisma.request.findFirst({
-      where: { id: requestId, tenantId },
-      include: { attachments: true, requester: true },
-    });
-    if (!request) throw new NotFoundException('Request not found');
+    // Serialize concurrent decisions on the SAME request. Without this, two
+    // approvers (or a double-clicked button) both read the pending status,
+    // both pass the stage check, and both record an Approval + audit row for
+    // one decision — with a non-deterministic final status and a TOCTOU
+    // window on the budget check. A transaction-scoped Postgres advisory lock
+    // keyed on the request id makes a second caller wait here until the first
+    // has committed its status change, so it then correctly hits the
+    // "not awaiting approval" branch. (real gap, fixed 2026-08-30)
+    const { request, result, effectiveAmount } = await this.prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
 
-    const totalAmount = this.sumAttachments(request.attachments);
-    // Verified (attachment/OCR) amount takes priority; otherwise fall back
-    // to the unverified stated amount so delegation-matching and the
-    // recorded Approval.spendingAmount still reflect the real figure being
-    // decided on, even before a receipt exists.
-    const effectiveAmount =
-      totalAmount > 0 ? totalAmount : Number(request.statedAmount ?? 0);
-    const hasVerifiedAttachment = request.attachments.length > 0;
-    const department = request.requester.department ?? 'ALL';
-    // Which Budget row this approval would actually draw down — the expense
-    // category if the assistant classified one, not the requester's own
-    // department (that's a separate concept, used only for delegation
-    // matching above). See decideFinanceStage/decideEscalatedStage.
-    const budgetScope =
-      request.budgetDepartment ?? request.requester.department ?? 'ALL';
+        const request = await tx.request.findFirst({
+          where: { id: requestId, tenantId },
+          include: { attachments: true, requester: true },
+        });
+        if (!request) throw new NotFoundException('Request not found');
 
-    let result;
-    switch (request.status) {
-      case RequestStatus.PENDING_MANAGER_APPROVAL:
-        result = await this.decideManagerStage(
-          tenantId,
-          actingUser,
-          request.id,
-          department,
-          effectiveAmount,
-          decision,
-          reason,
-        );
-        break;
-      case RequestStatus.PENDING_FINANCE_APPROVAL:
-        result = await this.decideFinanceStage(
-          tenantId,
-          actingUser,
-          request.id,
-          department,
-          budgetScope,
-          effectiveAmount,
-          hasVerifiedAttachment,
-          decision,
-          reason,
-        );
-        break;
-      case RequestStatus.ESCALATED:
-        result = await this.decideEscalatedStage(
-          tenantId,
-          actingUser,
-          request.id,
-          budgetScope,
-          effectiveAmount,
-          hasVerifiedAttachment,
-          decision,
-          reason,
-        );
-        break;
-      case RequestStatus.PENDING_ROLE_APPROVAL:
-        result = await this.decideRoleStage(
-          tenantId,
-          actingUser,
-          request.id,
-          request.requesterId,
-          request.routedRoleId!,
-          decision,
-          reason,
-        );
-        break;
-      default:
-        throw new ConflictException('Request is not awaiting approval');
-    }
+        const totalAmount = this.sumAttachments(request.attachments);
+        // Verified (attachment/OCR) amount takes priority; otherwise fall
+        // back to the unverified stated amount so delegation-matching and the
+        // recorded Approval.spendingAmount still reflect the real figure
+        // being decided on, even before a receipt exists.
+        const effectiveAmount =
+          totalAmount > 0 ? totalAmount : Number(request.statedAmount ?? 0);
+        const hasVerifiedAttachment = request.attachments.length > 0;
+        const department = request.requester.department ?? 'ALL';
+        // Which Budget row this approval would actually draw down — the
+        // expense category if the assistant classified one, not the
+        // requester's own department (that's a separate concept, used only
+        // for delegation matching above).
+        const budgetScope =
+          request.budgetDepartment ?? request.requester.department ?? 'ALL';
+
+        let result: { status: RequestStatus; budgetWarning?: string };
+        switch (request.status) {
+          case RequestStatus.PENDING_MANAGER_APPROVAL:
+            result = await this.decideManagerStage(
+              tenantId,
+              actingUser,
+              request.id,
+              department,
+              effectiveAmount,
+              decision,
+              reason,
+            );
+            break;
+          case RequestStatus.PENDING_FINANCE_APPROVAL:
+            result = await this.decideFinanceStage(
+              tenantId,
+              actingUser,
+              request.id,
+              department,
+              budgetScope,
+              effectiveAmount,
+              hasVerifiedAttachment,
+              decision,
+              reason,
+            );
+            break;
+          case RequestStatus.ESCALATED:
+            result = await this.decideEscalatedStage(
+              tenantId,
+              actingUser,
+              request.id,
+              budgetScope,
+              effectiveAmount,
+              hasVerifiedAttachment,
+              decision,
+              reason,
+            );
+            break;
+          case RequestStatus.PENDING_ROLE_APPROVAL:
+            result = await this.decideRoleStage(
+              tenantId,
+              actingUser,
+              request.id,
+              request.requesterId,
+              request.routedRoleId!,
+              decision,
+              reason,
+            );
+            break;
+          default:
+            throw new ConflictException('Request is not awaiting approval');
+        }
+        return { request, result, effectiveAmount };
+      },
+      { timeout: 20000 },
+    );
 
     // Best-effort — never lets a notification failure fail the decision itself.
     // PENDING_PAYMENT gets its own "we're on it, payment is on the way"

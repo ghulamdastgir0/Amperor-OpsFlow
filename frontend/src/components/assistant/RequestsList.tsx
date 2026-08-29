@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertCircle, CheckCircle2, Inbox, Paperclip, MessageSquare, Bot as BotIcon, Mail } from "lucide-react";
+import { AlertCircle, CheckCircle2, Inbox, Paperclip, MessageSquare, Bot as BotIcon, Mail, Users } from "lucide-react";
 import { motion } from "motion/react";
 import { requestsApi } from "@/lib/api";
 import type { OpsRequest, RequestChannel } from "@/lib/types";
@@ -14,6 +14,7 @@ import { REQUEST_STATUS_DISPLAY } from "@/lib/statusDisplay";
 
 const TABS = [
   { key: "pending", label: "Pending" },
+  { key: "payment", label: "Pending payment" },
   { key: "all", label: "All" },
   { key: "completed", label: "Completed" },
 ] as const;
@@ -23,6 +24,16 @@ const CHANNEL_ICON: Record<RequestChannel, typeof MessageSquare> = {
   assistant_ui: BotIcon,
   email: Mail,
 };
+
+// The "+N" chip needs to be worth noticing (someone else independently hit
+// the same issue) and to say who at a glance — not just a count someone has
+// to hover to decode. One name spelled out in full; beyond that, first name
+// plus a count, with the full roster still in the title tooltip.
+function additionalReportersLabel(reporters: { name: string }[]): string {
+  if (reporters.length === 1) return reporters[0].name;
+  if (reporters.length === 2) return `${reporters[0].name} & ${reporters[1].name}`;
+  return `${reporters[0].name} +${reporters.length - 1} more`;
+}
 
 export function RequestsList() {
   const [requests, setRequests] = useState<OpsRequest[] | null>(null);
@@ -38,7 +49,13 @@ export function RequestsList() {
 
   const filtered = useMemo(() => {
     if (!requests) return [];
-    if (tab === "pending") return requests.filter((r) => r.status.startsWith("PENDING"));
+    // "Pending payment" is its own queue: Finance-approved on a stated amount,
+    // now waiting for the money to actually be sent + proof attached.
+    if (tab === "payment") return requests.filter((r) => r.status === "PENDING_PAYMENT");
+    if (tab === "pending")
+      return requests.filter(
+        (r) => r.status.startsWith("PENDING") && r.status !== "PENDING_PAYMENT",
+      );
     if (tab === "completed")
       return requests.filter((r) =>
         ["APPROVED", "COMPLETED", "REJECTED", "CANCELLED", "NOTED"].includes(r.status),
@@ -84,12 +101,20 @@ export function RequestsList() {
         </div>
       ) : filtered.length === 0 ? (
         <EmptyState
-          icon={tab === "pending" ? CheckCircle2 : Inbox}
-          title={tab === "pending" ? "You're all caught up" : "Nothing here yet"}
+          icon={tab === "pending" || tab === "payment" ? CheckCircle2 : Inbox}
+          title={
+            tab === "pending"
+              ? "You're all caught up"
+              : tab === "payment"
+                ? "No payments outstanding"
+                : "Nothing here yet"
+          }
           description={
             tab === "pending"
               ? "No pending requests right now."
-              : "Requests will show up here once they're submitted."
+              : tab === "payment"
+                ? "Nothing is approved and awaiting payment right now."
+                : "Requests will show up here once they're submitted."
           }
         />
       ) : (
@@ -122,12 +147,14 @@ export function RequestsList() {
                       <Paperclip className="size-3.5 shrink-0 text-muted" aria-hidden />
                     )}
                     {(request.additionalReporters?.length ?? 0) > 0 && (
-                      <span
-                        className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-xs font-medium text-muted"
+                      <Badge
+                        tone="violet"
+                        className="shrink-0"
                         title={`Also reported by ${request.additionalReporters!.map((r) => r.name).join(", ")}`}
                       >
-                        +{request.additionalReporters!.length}
-                      </span>
+                        <Users className="size-3" aria-hidden />
+                        +{request.additionalReporters!.length} · {additionalReportersLabel(request.additionalReporters!)}
+                      </Badge>
                     )}
                     <span className="hidden shrink-0 text-xs text-muted sm:block">
                       {new Date(request.createdAt).toLocaleDateString()}

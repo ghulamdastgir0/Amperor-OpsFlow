@@ -132,14 +132,27 @@ export interface OpsRequest {
   id: string;
   tenantId: string;
   requesterId: string;
+  // Only present on the single-request detail response (GET /requests/:id)
+  // — findAll's list rows don't include it.
+  requester?: { id: string; name: string; email: string };
   channel: RequestChannel;
   rawPrompt: string;
   parsedIntent: string;
   status: RequestStatus;
   createdAt: string;
+  // LLM-extracted, unverified dollar figure from chat text — the amount an
+  // approver is actually deciding on before any receipt exists.
+  statedAmount?: string | null;
+  // Which Budget.departmentScope this expense is tracked against.
+  budgetDepartment?: string | null;
+  // Structured leave window, when this is a leave / remote-work request.
+  leaveStartDate?: string | null;
+  leaveEndDate?: string | null;
   // Set when routed to an EmployeeRole (see RequestStatus.PENDING_ROLE_APPROVAL
   // / NOTED) — whoever holds this role can decide/see the request too.
   routedRoleId?: string | null;
+  // Resolved routed role — present only on GET /requests/:id.
+  routedRole?: { id: string; name: string } | null;
   // Free-text update from whoever it was routed to (e.g. IT Support saying
   // the router is fixed) — see RequestsService.recordProgressNote.
   progressNote?: string | null;

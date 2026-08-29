@@ -58,7 +58,14 @@ TOOLS
   benefits") — those can never be "the same issue" as someone else's. See its own description for how to
   judge a genuine match vs. merely the same category.
 - file_request: file the user's current message as an operational request or a routed question — see
-  FILING DECISIONS below for what qualifies. Never more than once per user message. The tool result
+  FILING DECISIONS below for what qualifies. Call it ONCE PER DISTINCT ASK: never twice for the same
+  request, but DO call it more than once when a single message clearly contains SEPARATE, UNRELATED asks
+  — e.g. "I need sick leave today and the basement AC is broken" is two: a personal leave request
+  (route to HR + team lead) AND a shared facilities issue (run find_similar_open_requests, then route to
+  the Office Manager). File each one on its own with its own intentType/routing/summary; never bundle an
+  unrelated second issue into the first request's text, and never leave the second ask merely "offered"
+  in your reply — if it's a real request, file it now; only ask a clarifying question when you genuinely
+  can't tell what the second ask is. The tool result
   includes an internal request ID — NEVER include that ID (or any form of it) in your reply to the user,
   it's an internal reference, not something they need. Instead, briefly confirm what happened in plain
   language and be accurate about what's actually next — e.g. "waiting on Finance approval" for a
@@ -274,7 +281,7 @@ export class AssistantService {
     if (!actingUser) throw new NotFoundException('User not found');
 
     const conversation = dto.conversationId
-      ? await this.getConversation(tenantId, dto.conversationId)
+      ? await this.getConversation(tenantId, dto.conversationId, userId)
       : await this.findOrCreateConversation(tenantId, userId, channel);
 
     const userMessage = await this.prisma.message.create({
@@ -292,6 +299,7 @@ export class AssistantService {
       conversation.id,
       userMessage.createdAt,
       dto.content,
+      channel,
     );
 
     const assistantMessage = await this.prisma.message.create({
@@ -343,6 +351,7 @@ export class AssistantService {
     conversationId: string,
     currentMessageCreatedAt: Date,
     content: string,
+    channel: RequestChannel = RequestChannel.assistant_ui,
   ): Promise<{ replyText: string; requestId?: string }> {
     try {
       const [history, roles, budgetDepartments] = await Promise.all([
@@ -361,7 +370,13 @@ export class AssistantService {
       const result = await this.graph.invoke(
         { messages },
         {
-          configurable: { tenantId, userId, userRole, rawPrompt: content },
+          configurable: {
+            tenantId,
+            userId,
+            userRole,
+            rawPrompt: content,
+            channel,
+          },
           recursionLimit: RECURSION_LIMIT,
         },
       );
@@ -488,16 +503,21 @@ ${categoryList}`;
     });
   }
 
-  async getConversation(tenantId: string, id: string) {
+  // A conversation is personal — only its owner may read or append to it.
+  // Pass `userId` to enforce that; it's optional only for the rare internal
+  // caller that has already established access some other way. Without this,
+  // any authenticated tenant user could read/write anyone else's chat history
+  // by guessing/leaking a conversation id (real gap, fixed 2026-08-30).
+  async getConversation(tenantId: string, id: string, userId?: string) {
     const conversation = await this.prisma.conversation.findFirst({
-      where: { id, tenantId },
+      where: { id, tenantId, ...(userId ? { userId } : {}) },
     });
     if (!conversation) throw new NotFoundException('Conversation not found');
     return conversation;
   }
 
-  async getMessages(tenantId: string, conversationId: string) {
-    await this.getConversation(tenantId, conversationId);
+  async getMessages(tenantId: string, conversationId: string, userId: string) {
+    await this.getConversation(tenantId, conversationId, userId);
     return this.prisma.message.findMany({
       where: { conversationId },
       orderBy: { createdAt: 'asc' },

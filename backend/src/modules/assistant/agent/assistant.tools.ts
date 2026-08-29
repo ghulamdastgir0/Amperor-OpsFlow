@@ -41,6 +41,10 @@ interface AgentContext {
   userId: string;
   userRole: Role;
   rawPrompt: string;
+  // Which surface this turn came from — so a request filed by the tool is
+  // attributed to Slack when the conversation is a Slack DM, not always
+  // assistant_ui. Optional/defaulted for older callers.
+  channel?: RequestChannel;
 }
 
 function getContext(config: RunnableConfig): AgentContext {
@@ -128,6 +132,7 @@ export function buildAssistantTools(
     async (
       input: {
         intentType: string;
+        summary?: string;
         routeToRoleName?: string;
         requiresApproval?: boolean;
         statedAmount?: number;
@@ -139,10 +144,15 @@ export function buildAssistantTools(
       },
       config: RunnableConfig,
     ) => {
-      const { tenantId, userId, rawPrompt } = getContext(config);
+      const { tenantId, userId, rawPrompt, channel } = getContext(config);
+      // Prefer the model's assembled one-line description of the whole ask
+      // over just the last user message — a request filed after a few
+      // slot-filling turns would otherwise record only "next Monday" or
+      // "$120" with no context for whoever decides it.
+      const effectivePrompt = input.summary?.trim() || rawPrompt;
       const request = await requests.create(tenantId, userId, {
-        channel: RequestChannel.assistant_ui,
-        rawPrompt,
+        channel: channel ?? RequestChannel.assistant_ui,
+        rawPrompt: effectivePrompt,
         parsedIntent: input.intentType,
         statedAmount: input.statedAmount,
         budgetDepartment: input.budgetDepartment,
@@ -162,7 +172,7 @@ export function buildAssistantTools(
             requesterId: userId,
             requestId: request.id,
             intentType: input.intentType,
-            rawPrompt,
+            rawPrompt: effectivePrompt,
             summary: input.routingSummary,
           },
         );
@@ -184,12 +194,18 @@ export function buildAssistantTools(
     {
       name: 'file_request',
       description:
-        "File the user's current message as an operational request (expense reimbursement, purchase request, leave request, etc.) for policy checking and approval routing. Only call this once you're confident it's a concrete, actionable request — never to answer a question, and never more than once per user message.",
+        "File the user's current message as an operational request (expense reimbursement, purchase request, leave request, etc.) for policy checking and approval routing. Only call this once you're confident it's a concrete, actionable request — never to answer a question. Call it once per DISTINCT ask: never twice for the same request, but do call it again for a genuinely separate, unrelated ask in the same message (e.g. a personal leave request AND an unrelated facilities problem) rather than bundling them into one.",
       schema: z.object({
         intentType: z
           .string()
           .describe(
             'SCREAMING_SNAKE_CASE label, e.g. EXPENSE_REIMBURSEMENT, PURCHASE_REQUEST, LEAVE_REQUEST',
+          ),
+        summary: z
+          .string()
+          .optional()
+          .describe(
+            'A single self-contained sentence capturing the WHOLE ask in the requester\'s own terms — what they want, the amount/dates, and the reason — assembled from the entire conversation so far, not just their last message. This becomes the request\'s recorded description that approvers read, so it must stand on its own without the chat around it (e.g. "Reimburse $120 for a replacement office chair after the old one broke", not "$120"). Always provide it when filing after any back-and-forth.',
           ),
         routeToRoleName: z
           .string()
@@ -233,13 +249,13 @@ export function buildAssistantTools(
           .optional()
           .describe(
             'Required whenever routeToRoleName is set OR notifyTeamLead is true: a short, natural continuation ' +
-              'sentence describing the issue/ask for the reader — written to follow the requester\'s name, e.g. ' +
+              "sentence describing the issue/ask for the reader — written to follow the requester's name, e.g. " +
               'for a WiFi complaint: "is having trouble with the WiFi and would like it looked into." ' +
               'Rewrite/summarize the request in your own words; never just quote the raw message verbatim. Do ' +
               "NOT include the requester's name (added automatically), any internal ID/reference, or any " +
               'mention of approval status ("no approval needed", "requires approval", etc.) — that\'s not the ' +
               "reader's concern here, just tell them what's needed. Used for both routeToRoleName's and " +
-              'notifyTeamLead\'s notification when both are set.',
+              "notifyTeamLead's notification when both are set.",
           ),
         notifyTeamLead: z
           .boolean()
@@ -284,7 +300,7 @@ export function buildAssistantTools(
         note: z
           .string()
           .describe(
-            "This user's own phrasing of the issue, rewritten as a short natural note (e.g. \"also reports the upper floor is too hot\") — shown alongside the original report.",
+            'This user\'s own phrasing of the issue, rewritten as a short natural note (e.g. "also reports the upper floor is too hot") — shown alongside the original report.',
           ),
       }),
     },
@@ -328,8 +344,7 @@ export function buildAssistantTools(
           whatItWasFor: r.rawPrompt,
           intentType: r.parsedIntent,
           status: REQUEST_STATUS_LABELS[r.status] ?? r.status,
-          amount:
-            r.statedAmount != null ? Number(r.statedAmount) : undefined,
+          amount: r.statedAmount != null ? Number(r.statedAmount) : undefined,
           routedTo: r.routedRole?.name,
           filedOn: r.createdAt.toISOString().slice(0, 10),
           // A free-text update from whoever it was routed to (e.g. IT Support

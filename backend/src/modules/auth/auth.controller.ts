@@ -7,6 +7,7 @@ import {
   Query,
   Res,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   ApiBearerAuth,
   ApiExcludeEndpoint,
@@ -37,6 +38,8 @@ export class AuthController {
   ) {}
 
   @Public()
+  // Brute-force / credential-stuffing guard — 10 attempts per IP per minute.
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({
     summary: 'Log in with tenant + email + password, returns a JWT',
   })

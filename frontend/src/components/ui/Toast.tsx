@@ -26,10 +26,13 @@ const ICONS: Record<ToastType, typeof CheckCircle2> = {
   info: Info,
 };
 
+// Opaque `bg-surface` base (not the translucent `*-tint` tokens) so a toast
+// stays readable in dark mode and when it stacks over a modal backdrop — the
+// tone now reads from a colored left accent + icon, not a see-through fill.
 const TONE_CLASSES: Record<ToastType, string> = {
-  success: "border-success/20 bg-success-tint text-success-foreground [&_svg]:text-success",
-  error: "border-danger/20 bg-danger-tint text-danger-foreground [&_svg]:text-danger",
-  info: "border-info/20 bg-info-tint text-info-foreground [&_svg]:text-info",
+  success: "border-success/30 border-l-[3px] border-l-success [&_svg]:text-success",
+  error: "border-danger/30 border-l-[3px] border-l-danger [&_svg]:text-danger",
+  info: "border-info/30 border-l-[3px] border-l-info [&_svg]:text-info",
 };
 
 let idCounter = 0;
@@ -62,7 +65,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div className="pointer-events-none fixed right-4 top-4 z-50 flex w-full max-w-sm flex-col gap-2">
+      <div className="pointer-events-none fixed right-4 top-4 z-[60] flex w-full max-w-sm flex-col gap-2">
         <AnimatePresence initial={false}>
           {toasts.map((toast) => {
             const Icon = ICONS[toast.type];
@@ -76,7 +79,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                 exit={{ opacity: 0, x: 40, transition: { duration: 0.15 } }}
                 transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
                 className={cn(
-                  "pointer-events-auto flex items-start gap-2.5 rounded-lg border px-4 py-3 text-sm shadow-[var(--shadow-lg)]",
+                  "pointer-events-auto flex items-start gap-2.5 rounded-lg border bg-surface px-4 py-3 text-sm text-foreground shadow-[var(--shadow-lg)]",
                   TONE_CLASSES[toast.type],
                 )}
               >

@@ -1,5 +1,5 @@
 import { ApprovalDecision } from '@prisma/client';
-import { IsIn, IsOptional, IsString } from 'class-validator';
+import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class DecideRequestDto {
   @IsIn([ApprovalDecision.APPROVED, ApprovalDecision.REJECTED])
@@ -7,5 +7,6 @@ export class DecideRequestDto {
 
   @IsString()
   @IsOptional()
+  @MaxLength(2000)
   reason?: string;
 }

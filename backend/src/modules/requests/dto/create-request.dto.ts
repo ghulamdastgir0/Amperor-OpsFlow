@@ -7,28 +7,39 @@ import {
   IsOptional,
   IsPositive,
   IsString,
+  Max,
+  MaxLength,
 } from 'class-validator';
+
+// Request.statedAmount / Attachment.totalAmount are Decimal(12,2) — max 10
+// integer digits. Cap well under that so an out-of-range figure is a clean
+// 400, not an unhandled Prisma/Postgres numeric-overflow 500.
+const MAX_MONEY = 9_999_999_999;
 
 export class CreateRequestDto {
   @IsEnum(RequestChannel)
   channel: RequestChannel;
 
   @IsString()
+  @MaxLength(8000)
   rawPrompt: string;
 
   @IsString()
   @IsOptional()
+  @MaxLength(160)
   parsedIntent?: string;
 
   // LLM-extracted, unverified amount mentioned in chat — see Request.statedAmount.
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @IsPositive()
+  @Max(MAX_MONEY)
   @IsOptional()
   statedAmount?: number;
 
   // LLM-classified budget category this expense counts against — see Request.budgetDepartment.
   @IsString()
   @IsOptional()
+  @MaxLength(120)
   budgetDepartment?: string;
 
   // Exact EmployeeRole name this request should route to (e.g. "Human
@@ -36,6 +47,7 @@ export class CreateRequestDto {
   // See RequestsService.create.
   @IsString()
   @IsOptional()
+  @MaxLength(120)
   routeToRoleName?: string;
 
   // Whether routeToRoleName means "a role-holder must actually decide this"

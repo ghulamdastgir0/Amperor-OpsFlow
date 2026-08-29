@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Bot, Inbox, Wallet, UserCog, ScrollText, ArrowRight, Clock3 } from "lucide-react";
+import { Bot, Inbox, Wallet, UserCog, ScrollText, Tags, ArrowRight, Clock3 } from "lucide-react";
 import { motion } from "motion/react";
 import { useAuth } from "@/hooks/useAuth";
 import { requestsApi } from "@/lib/api";
@@ -50,6 +50,13 @@ const SECTIONS = [
     icon: ScrollText,
     roles: ["SYSTEM_ADMIN"] as Role[],
   },
+  {
+    href: "/admin/roles",
+    title: "Roles & Messaging",
+    description: "Tag employees by department/function and send role-targeted Slack messages.",
+    icon: Tags,
+    roles: ["SYSTEM_ADMIN"] as Role[],
+  },
 ];
 
 export function DashboardHome() {
@@ -70,7 +77,7 @@ export function DashboardHome() {
   return (
     <div>
       <PageHeader
-        title={`Welcome back${user ? `, ${user.email.split("@")[0]}` : ""}`}
+        title={`Welcome back${user ? `, ${user.name || user.email.split("@")[0]}` : ""}`}
         description={
           pendingCount !== null
             ? `${pendingCount} request${pendingCount === 1 ? "" : "s"} awaiting action right now.`

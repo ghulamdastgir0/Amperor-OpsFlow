@@ -34,7 +34,11 @@ export class UsersController {
     return this.usersService.create(user.tenantId, dto);
   }
 
+  // SYSTEM_ADMIN only — the full roster exposes every user's email, Slack id,
+  // account flags and role tags. Non-admins get only their own record via
+  // GET /users/me below; nothing else in the app needs the list for them.
   @Get()
+  @Roles(Role.SYSTEM_ADMIN)
   findAll(@CurrentUser() user: AuthenticatedUser) {
     return this.usersService.findAll(user.tenantId);
   }
@@ -79,6 +83,7 @@ export class UsersController {
   }
 
   @Get(':id')
+  @Roles(Role.SYSTEM_ADMIN)
   findOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.usersService.findOne(user.tenantId, id);
   }

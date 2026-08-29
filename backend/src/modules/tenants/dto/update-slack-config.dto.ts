@@ -1,4 +1,4 @@
-import { IsOptional, IsString, Matches } from 'class-validator';
+import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 import { SLACK_TEAM_ID_PATTERN } from './create-tenant.dto';
 
 export class UpdateSlackConfigDto {
@@ -12,5 +12,6 @@ export class UpdateSlackConfigDto {
   // Channel where every message is treated as a query — no @mention required.
   @IsString()
   @IsOptional()
+  @MaxLength(40)
   slackQueryChannelId?: string;
 }
