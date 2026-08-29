@@ -29,14 +29,14 @@ function PlatformHeader() {
   const items = NAV_ITEMS.filter((item) => !item.globalOnly || profile?.isGlobalAdmin);
 
   return (
-    <header className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-surface px-4 py-3 shadow-sm sm:gap-3 sm:px-8 sm:py-3.5">
+    <header className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-surface px-4 py-3 shadow-[var(--shadow-sm)] sm:gap-3 sm:px-8 sm:py-3.5">
       <Link href="/platform" className="flex shrink-0 items-center gap-2">
         <div className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
           <ShieldCheck className="size-4" aria-hidden />
         </div>
         <span className="font-heading text-sm font-semibold text-foreground">OpsFlow</span>
       </Link>
-      <span className="hidden shrink-0 rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-primary ring-1 ring-inset ring-primary/20 sm:inline-block dark:bg-indigo-500/10">
+      <span className="hidden shrink-0 rounded-full bg-primary-tint px-2.5 py-0.5 text-xs font-medium text-primary ring-1 ring-inset ring-primary/20 sm:inline-block">
         Platform Admin
       </span>
 
@@ -52,8 +52,8 @@ function PlatformHeader() {
               className={cn(
                 "flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium transition-colors sm:px-3",
                 isActive
-                  ? "bg-indigo-50 text-primary dark:bg-indigo-500/10"
-                  : "text-muted hover:bg-slate-50 hover:text-foreground dark:hover:bg-white/5",
+                  ? "bg-primary-tint text-primary"
+                  : "text-muted hover:bg-surface-2 hover:text-foreground",
               )}
             >
               <Icon className="size-3.5" aria-hidden />
@@ -80,7 +80,7 @@ function PlatformHeader() {
               type="button"
               onClick={handleSignOut}
               title="Sign out"
-              className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted hover:bg-slate-50 hover:text-foreground sm:px-2.5 dark:hover:bg-white/5"
+              className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-foreground sm:px-2.5"
             >
               <LogOut className="size-3.5" aria-hidden />
               <span className="hidden sm:inline">Sign out</span>

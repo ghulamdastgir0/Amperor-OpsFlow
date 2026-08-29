@@ -110,7 +110,7 @@ export default function PlatformAdminsPage() {
   if (!profile?.isGlobalAdmin) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 px-6 py-20 text-center">
-        <div className="flex size-12 items-center justify-center rounded-full bg-red-50 text-red-500 dark:bg-red-500/10 dark:text-red-400">
+        <div className="flex size-12 items-center justify-center rounded-full bg-danger-tint text-danger">
           <ShieldAlert className="size-6" aria-hidden />
         </div>
         <h1 className="font-heading text-lg font-semibold text-foreground">Access restricted</h1>
@@ -207,7 +207,7 @@ export default function PlatformAdminsPage() {
                   return (
                     <tr
                       key={a.id}
-                      className="border-b border-border last:border-0 hover:bg-slate-50 dark:hover:bg-white/5"
+                      className="border-b border-border last:border-0 transition-colors hover:bg-surface-2"
                     >
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2.5">
@@ -242,7 +242,7 @@ export default function PlatformAdminsPage() {
                             </button>
                             <button
                               type="button"
-                              className="text-xs font-medium text-red-500 hover:text-red-400"
+                              className="text-xs font-medium text-danger transition-opacity hover:opacity-80"
                               onClick={() => setPendingDelete(a)}
                             >
                               Delete

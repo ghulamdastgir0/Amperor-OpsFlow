@@ -28,9 +28,9 @@ export function TransactionHistory() {
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <h2 className="font-heading text-sm font-semibold text-foreground">Transaction History</h2>
         <div className="relative ml-auto">
-          <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" aria-hidden />
+          <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
           <input
-            className="rounded-lg border border-border bg-surface py-1.5 pl-8 pr-3 text-sm placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+            className="rounded-lg border border-border bg-surface py-1.5 pl-8 pr-3 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
             placeholder="Filter by department…"
             value={department}
             onChange={(e) => setDepartment(e.target.value)}
@@ -38,7 +38,7 @@ export function TransactionHistory() {
         </div>
       </div>
 
-      {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
+      {error && <p className="mb-3 text-sm text-danger">{error}</p>}
 
       {transactions === null ? (
         <SkeletonRows rows={5} cols={5} />
@@ -62,7 +62,7 @@ export function TransactionHistory() {
               {transactions.map((t) => {
                 const status = REQUEST_STATUS_DISPLAY[t.status];
                 return (
-                  <tr key={t.requestId} className="border-b border-border/60 last:border-0 hover:bg-slate-50 dark:hover:bg-white/5">
+                  <tr key={t.requestId} className="border-b border-border/60 last:border-0 transition-colors hover:bg-surface-2">
                     <td className="py-2.5 pr-4">
                       <Link href={`/requests/${t.requestId}`} className="font-medium text-primary hover:underline">
                         {t.requestId.slice(0, 8)}

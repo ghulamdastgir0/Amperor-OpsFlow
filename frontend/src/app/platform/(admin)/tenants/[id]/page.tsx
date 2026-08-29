@@ -160,7 +160,7 @@ export default function PlatformTenantDetailPage({ params }: PageProps<"/platfor
             type="button"
             onClick={copySlackInstallLink}
             title={`Copy the Slack install link — an admin in the Slack workspace with team ID ${tenant.slackTeamId} must open it themselves`}
-            className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 hover:bg-amber-100 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-300 dark:hover:bg-amber-500/20"
+            className="inline-flex items-center gap-1.5 rounded-full border border-warning/30 bg-warning-tint px-2.5 py-1 text-xs font-medium text-warning-foreground transition-colors hover:bg-warning/20"
           >
             <Copy className="size-3" aria-hidden />
             Copy Slack install link
@@ -176,7 +176,7 @@ export default function PlatformTenantDetailPage({ params }: PageProps<"/platfor
       )}
 
       {error && (
-        <div className="mb-6 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+        <div className="mb-6 flex items-start gap-2 rounded-lg border border-danger/20 bg-danger-tint px-3.5 py-2.5 text-sm text-danger-foreground">
           <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
           <span>{error}</span>
         </div>
@@ -278,7 +278,7 @@ export default function PlatformTenantDetailPage({ params }: PageProps<"/platfor
                   </thead>
                   <tbody>
                     {users.map((u) => (
-                      <tr key={u.id} className="border-b border-border last:border-0 hover:bg-slate-50 dark:hover:bg-white/5">
+                      <tr key={u.id} className="border-b border-border last:border-0 transition-colors hover:bg-surface-2">
                         <td className="px-4 py-3 text-foreground">{u.name}</td>
                         <td className="px-4 py-3 text-muted">{u.email}</td>
                         <td className="px-4 py-3 text-muted">{u.role.replace(/_/g, " ")}</td>
@@ -298,7 +298,7 @@ export default function PlatformTenantDetailPage({ params }: PageProps<"/platfor
                             {profile?.isGlobalAdmin && u.role === "SYSTEM_ADMIN" && (
                               <button
                                 type="button"
-                                className="text-xs font-medium text-red-500 hover:text-red-400"
+                                className="text-xs font-medium text-danger transition-opacity hover:opacity-80"
                                 onClick={() => setPendingRemoveAdmin(u)}
                               >
                                 Remove
@@ -335,7 +335,7 @@ export default function PlatformTenantDetailPage({ params }: PageProps<"/platfor
                     {requests.map((r) => {
                       const status = REQUEST_STATUS_DISPLAY[r.status];
                       return (
-                        <tr key={r.id} className="border-b border-border last:border-0 hover:bg-slate-50 dark:hover:bg-white/5">
+                        <tr key={r.id} className="border-b border-border last:border-0 transition-colors hover:bg-surface-2">
                           <td className="px-4 py-3 text-foreground">{r.parsedIntent}</td>
                           <td className="px-4 py-3 text-muted">{r.channel}</td>
                           <td className="px-4 py-3">

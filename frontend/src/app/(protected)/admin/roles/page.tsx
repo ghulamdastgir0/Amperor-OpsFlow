@@ -155,7 +155,7 @@ function RoleRow({
               <button
                 type="button"
                 onClick={() => setPendingDelete(true)}
-                className="text-xs font-medium text-red-500 hover:text-red-400"
+                className="text-xs font-medium text-danger transition-opacity hover:opacity-80"
               >
                 Remove
               </button>
@@ -645,7 +645,7 @@ function EmployeeAssignments({
                   disabled={isChangingRole}
                   onChange={(e) => handleRoleSelect(u, e.target.value as Role)}
                   title="Access role — controls what they can do in the app"
-                  className="rounded-full border border-blue-300 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50 dark:border-blue-400/30 dark:bg-blue-500/10 dark:text-blue-300"
+                  className="rounded-full border border-info/30 bg-info-tint px-2.5 py-1 text-xs font-medium text-info-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50"
                 >
                   {ROLE_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>
@@ -692,14 +692,14 @@ function EmployeeAssignments({
                   <span
                     key={r.id}
                     title={r.description ?? undefined}
-                    className="inline-flex items-center gap-1 rounded-full border border-border bg-slate-50 py-1 pl-2.5 pr-1 text-xs font-medium text-foreground dark:bg-white/5"
+                    className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 py-1 pl-2.5 pr-1 text-xs font-medium text-foreground"
                   >
                     {r.name}
                     <button
                       type="button"
                       onClick={() => removeTag(u, r.id)}
                       disabled={pendingTagChangeUserId === u.id}
-                      className="rounded-full p-0.5 text-muted hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-500/10"
+                      className="rounded-full p-0.5 text-muted transition-colors hover:bg-danger-tint hover:text-danger disabled:opacity-50"
                     >
                       <X className="size-3" aria-hidden />
                     </button>
@@ -732,7 +732,7 @@ function EmployeeAssignments({
                     </button>
                     <button
                       type="button"
-                      className="text-xs font-medium text-red-500 hover:text-red-400"
+                      className="text-xs font-medium text-danger transition-opacity hover:opacity-80"
                       onClick={() => setPendingRemove(u)}
                     >
                       Remove
@@ -880,7 +880,7 @@ function BroadcastComposer({
                       isUnassigned
                         ? "cursor-not-allowed rounded-full border border-dashed border-border bg-surface px-3 py-1.5 text-xs font-medium text-muted opacity-50"
                         : isSelected
-                          ? "rounded-full border border-primary bg-indigo-50 px-3 py-1.5 text-xs font-medium text-primary dark:bg-indigo-500/10"
+                          ? "rounded-full border border-primary bg-primary-tint px-3 py-1.5 text-xs font-medium text-primary"
                           : "rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-medium text-muted hover:border-primary hover:text-primary"
                     }
                   >
@@ -915,7 +915,7 @@ function BroadcastComposer({
                     isUnassigned
                       ? "cursor-not-allowed rounded-full border border-dashed border-border bg-surface px-3 py-1.5 text-xs font-medium text-muted opacity-50"
                       : isSelected
-                        ? "rounded-full border border-primary bg-indigo-50 px-3 py-1.5 text-xs font-medium text-primary dark:bg-indigo-500/10"
+                        ? "rounded-full border border-primary bg-primary-tint px-3 py-1.5 text-xs font-medium text-primary"
                         : "rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-medium text-muted hover:border-primary hover:text-primary"
                   }
                 >
@@ -1033,7 +1033,7 @@ export default function EmployeeRolesPage() {
       />
 
       {error && (
-        <div className="mb-6 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+        <div className="mb-6 flex items-start gap-2 rounded-lg border border-danger/20 bg-danger-tint px-3.5 py-2.5 text-sm text-danger-foreground">
           <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
           <span>{error}</span>
         </div>

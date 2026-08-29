@@ -150,7 +150,7 @@ function ProfileForm({ profile, onSaved }: { profile: PlatformAdminProfile; onSa
         )}
       </Card>
 
-      <Card className="border-red-200 dark:border-red-500/20">
+      <Card className="border-danger/20">
         <h2 className="font-heading mb-1 text-sm font-semibold text-foreground">Danger Zone</h2>
         <p className="mb-4 text-xs text-muted">Permanently remove your platform admin account.</p>
         <Button variant="danger" size="sm" onClick={() => setShowDeleteBlocked(true)}>

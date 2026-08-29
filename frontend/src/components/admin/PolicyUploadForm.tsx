@@ -67,7 +67,7 @@ export function PolicyUploadForm({ onCreated }: { onCreated: (policy: PolicyDocu
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-      <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-slate-50/60 px-6 py-8 text-center hover:border-primary hover:bg-indigo-50/40 dark:bg-white/[0.03] dark:hover:bg-indigo-500/10">
+      <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-surface-2 px-6 py-8 text-center transition-colors hover:border-primary hover:bg-primary-tint">
         <input
           ref={fileInputRef}
           type="file"
@@ -127,7 +127,7 @@ export function PolicyUploadForm({ onCreated }: { onCreated: (policy: PolicyDocu
         onChange={(e) => setSourceUrl(e.target.value)}
       />
 
-      <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-slate-50/60 px-3.5 py-3 text-sm dark:bg-white/[0.03]">
+      <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-surface-2 px-3.5 py-3 text-sm">
         <input
           type="checkbox"
           checked={restricted}

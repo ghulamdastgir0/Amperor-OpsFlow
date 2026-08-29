@@ -71,7 +71,7 @@ export function DelegationList({
               {delegations.map((delegation) => {
                 const user = userFor(delegation.delegateManagerId);
                 return (
-                  <tr key={delegation.id} className="border-b border-border/60 last:border-0 hover:bg-slate-50 dark:hover:bg-white/5">
+                  <tr key={delegation.id} className="border-b border-border/60 last:border-0 transition-colors hover:bg-surface-2">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5">
                         <Avatar name={user?.name ?? delegation.delegateManagerId} />
@@ -97,7 +97,7 @@ export function DelegationList({
                       {delegation.isActive && (
                         <button
                           type="button"
-                          className="text-xs font-medium text-red-600 hover:underline"
+                          className="text-xs font-medium text-danger hover:underline"
                           onClick={() => setPendingRevoke(delegation)}
                         >
                           Revoke

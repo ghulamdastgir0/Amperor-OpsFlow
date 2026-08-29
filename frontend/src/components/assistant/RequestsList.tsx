@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AlertCircle, CheckCircle2, Inbox, Paperclip, MessageSquare, Bot as BotIcon, Mail } from "lucide-react";
+import { motion } from "motion/react";
 import { requestsApi } from "@/lib/api";
 import type { OpsRequest, RequestChannel } from "@/lib/types";
 import { Badge } from "@/components/ui/Badge";
@@ -47,24 +48,31 @@ export function RequestsList() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="inline-flex w-fit rounded-lg border border-border bg-slate-50 p-1">
+      <div className="inline-flex w-fit rounded-lg border border-border bg-surface-2 p-1">
         {TABS.map((t) => (
           <button
             key={t.key}
             type="button"
             onClick={() => setTab(t.key)}
             className={cn(
-              "rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors",
-              tab === t.key ? "bg-surface text-foreground shadow-sm" : "text-muted hover:text-foreground",
+              "relative rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors",
+              tab === t.key ? "text-foreground" : "text-muted hover:text-foreground",
             )}
           >
-            {t.label}
+            {tab === t.key && (
+              <motion.span
+                layoutId="requests-tab-active"
+                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                className="absolute inset-0 rounded-md bg-surface shadow-[var(--shadow-sm)]"
+              />
+            )}
+            <span className="relative">{t.label}</span>
           </button>
         ))}
       </div>
 
       {error && (
-        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
+        <div className="flex items-start gap-2 rounded-lg border border-danger/20 bg-danger-tint px-3.5 py-2.5 text-sm text-danger-foreground">
           <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
           <span>{error}</span>
         </div>
@@ -87,16 +95,21 @@ export function RequestsList() {
       ) : (
         <div className="overflow-hidden rounded-xl border border-border bg-surface">
           <ul className="divide-y divide-border">
-            {filtered.map((request) => {
+            {filtered.map((request, index) => {
               const status = REQUEST_STATUS_DISPLAY[request.status];
               const ChannelIcon = CHANNEL_ICON[request.channel] ?? BotIcon;
               return (
-                <li key={request.id}>
+                <motion.li
+                  key={request.id}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2, delay: Math.min(index, 8) * 0.03, ease: [0.16, 1, 0.3, 1] }}
+                >
                   <Link
                     href={`/requests/${request.id}`}
-                    className="flex items-center gap-4 px-5 py-4 hover:bg-slate-50 dark:hover:bg-white/5"
+                    className="flex items-center gap-4 px-5 py-4 transition-colors hover:bg-surface-2"
                   >
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-primary">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary-tint text-primary">
                       <ChannelIcon className="size-4" aria-hidden />
                     </span>
                     <div className="min-w-0 flex-1">
@@ -110,7 +123,7 @@ export function RequestsList() {
                     )}
                     {(request.additionalReporters?.length ?? 0) > 0 && (
                       <span
-                        className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-muted dark:bg-white/10"
+                        className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-xs font-medium text-muted"
                         title={`Also reported by ${request.additionalReporters!.map((r) => r.name).join(", ")}`}
                       >
                         +{request.additionalReporters!.length}
@@ -123,7 +136,7 @@ export function RequestsList() {
                       {status.label}
                     </Badge>
                   </Link>
-                </li>
+                </motion.li>
               );
             })}
           </ul>

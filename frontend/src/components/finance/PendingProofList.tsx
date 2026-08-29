@@ -19,12 +19,12 @@ export function PendingProofList({ reservations }: { reservations: FinanceReserv
           <li key={r.requestId}>
             <Link
               href={`/requests/${r.requestId}`}
-              className="flex items-center gap-3 py-2.5 text-sm hover:opacity-80"
+              className="flex items-center gap-3 rounded-lg py-2.5 text-sm transition-colors hover:bg-surface-2"
             >
-              <Clock className="size-4 shrink-0 text-amber-500" aria-hidden />
+              <Clock className="size-4 shrink-0 text-warning" aria-hidden />
               <span className="min-w-0 flex-1 truncate text-foreground">{r.requesterName}</span>
               <span className="shrink-0 text-xs text-muted">{r.department}</span>
-              <span className="shrink-0 font-medium text-amber-600">{currency(r.amount)}</span>
+              <span className="shrink-0 font-medium text-warning">{currency(r.amount)}</span>
             </Link>
           </li>
         ))}

@@ -2,7 +2,7 @@ import { cn } from "@/lib/cn";
 import type { InputHTMLAttributes, TextareaHTMLAttributes, SelectHTMLAttributes } from "react";
 
 const FIELD_CLASSES =
-  "w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400 dark:disabled:bg-white/[0.03] dark:disabled:text-slate-500";
+  "w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground transition-colors duration-150 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-muted-foreground";
 
 function FieldShell({
   label,
@@ -21,11 +21,11 @@ function FieldShell({
     <label className="flex flex-col gap-1.5 text-sm text-foreground">
       <span className="font-medium">
         {label}
-        {required && <span className="text-red-500"> *</span>}
+        {required && <span className="text-danger"> *</span>}
       </span>
       {children}
       {error ? (
-        <span className="text-xs text-red-600">{error}</span>
+        <span className="text-xs text-danger">{error}</span>
       ) : hint ? (
         <span className="text-xs text-muted">{hint}</span>
       ) : null}
@@ -42,7 +42,7 @@ export function Input({
 }: { label: string; hint?: string; error?: string } & InputHTMLAttributes<HTMLInputElement>) {
   return (
     <FieldShell label={label} hint={hint} error={error} required={props.required}>
-      <input className={cn(FIELD_CLASSES, error && "border-red-400", className)} {...props} />
+      <input className={cn(FIELD_CLASSES, error && "border-danger", className)} {...props} />
     </FieldShell>
   );
 }
@@ -56,7 +56,7 @@ export function Textarea({
 }: { label: string; hint?: string; error?: string } & TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <FieldShell label={label} hint={hint} error={error} required={props.required}>
-      <textarea className={cn(FIELD_CLASSES, error && "border-red-400", className)} {...props} />
+      <textarea className={cn(FIELD_CLASSES, error && "border-danger", className)} {...props} />
     </FieldShell>
   );
 }
@@ -71,7 +71,7 @@ export function Select({
 }: { label: string; hint?: string; error?: string } & SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <FieldShell label={label} hint={hint} error={error} required={props.required}>
-      <select className={cn(FIELD_CLASSES, error && "border-red-400", className)} {...props}>
+      <select className={cn(FIELD_CLASSES, error && "border-danger", className)} {...props}>
         {children}
       </select>
     </FieldShell>

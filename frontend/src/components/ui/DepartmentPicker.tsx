@@ -115,7 +115,7 @@ export function DepartmentPicker({
           onClick={handleCreate}
           disabled={isSaving || !newName.trim()}
           title="Add department"
-          className="rounded-full p-1 text-emerald-600 hover:bg-emerald-50 disabled:opacity-50 dark:hover:bg-emerald-500/10"
+          className="rounded-full p-1 text-success hover:bg-success-tint disabled:opacity-50"
         >
           <Check className="size-3.5" aria-hidden />
         </button>
@@ -124,7 +124,7 @@ export function DepartmentPicker({
           onClick={handleCancel}
           disabled={isSaving}
           title="Cancel"
-          className="rounded-full p-1 text-muted hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-white/10"
+          className="rounded-full p-1 text-muted hover:bg-surface-2 disabled:opacity-50"
         >
           <X className="size-3.5" aria-hidden />
         </button>

@@ -66,6 +66,10 @@ export function RequestDetail({ requestId }: { requestId: string }) {
     try {
       const updated = await requestsApi.decideRequest(requestId, decision, reason || undefined);
       setRequest(updated);
+      // The decide response doesn't carry the freshly-appended execution step
+      // (e.g. "Awaiting Finance Approval" flipping to Completed) — refetch the
+      // full detail so the timeline doesn't briefly show stale/empty steps.
+      load();
       setReason("");
       setShowReasonFor(null);
       toast.success(decision === "APPROVED" ? "Request approved." : "Request rejected.");
@@ -90,6 +94,7 @@ export function RequestDetail({ requestId }: { requestId: string }) {
     try {
       const updated = await requestsApi.attachProof(requestId, files);
       setRequest(updated);
+      load();
       toast.success("Payment marked as sent — the requester has been notified.");
     } catch (err) {
       const status = (err as { response?: { status?: number } }).response?.status;
@@ -111,7 +116,7 @@ export function RequestDetail({ requestId }: { requestId: string }) {
 
   if (error && !request) {
     return (
-      <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
+      <div className="flex items-start gap-2 rounded-lg border border-danger/20 bg-danger-tint px-3.5 py-2.5 text-sm text-danger-foreground">
         <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
         <span>{error}</span>
       </div>
@@ -158,8 +163,8 @@ export function RequestDetail({ requestId }: { requestId: string }) {
     FINANCE_DECIDE_ROLES.includes(user.role);
 
   return (
-    <div>
-      <Link href="/requests" className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted hover:text-foreground">
+    <div className="animate-fade-in">
+      <Link href="/requests" className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted transition-colors hover:text-foreground">
         <ArrowLeft className="size-3.5" aria-hidden />
         Action Hub
       </Link>
@@ -185,7 +190,7 @@ export function RequestDetail({ requestId }: { requestId: string }) {
               </p>
             )}
             {request.progressNote && (
-              <div className="mt-4 rounded-lg border border-border bg-slate-50 px-3.5 py-2.5 text-sm dark:bg-white/5">
+              <div className="mt-4 rounded-lg border border-border bg-surface-2 px-3.5 py-2.5 text-sm">
                 <p className="text-xs font-medium text-muted">Latest update</p>
                 <p className="mt-0.5 text-foreground">{request.progressNote}</p>
               </div>
@@ -201,7 +206,7 @@ export function RequestDetail({ requestId }: { requestId: string }) {
                     <button
                       type="button"
                       onClick={() => handleViewAttachment(a.id)}
-                      className="flex w-full items-center justify-between rounded-lg border border-border bg-slate-50 px-3.5 py-2.5 text-left text-sm transition-colors hover:bg-slate-100 dark:bg-white/5 dark:hover:bg-white/10"
+                      className="flex w-full items-center justify-between rounded-lg border border-border bg-surface-2 px-3.5 py-2.5 text-left text-sm transition-colors hover:bg-border/40"
                     >
                       <span className="truncate text-foreground">{a.fileName ?? a.merchantName ?? "Attachment"}</span>
                       {a.totalAmount && (
@@ -273,7 +278,7 @@ export function RequestDetail({ requestId }: { requestId: string }) {
               <div className="flex gap-2">
                 <Button
                   variant="primary"
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+                  className="flex-1 bg-success hover:opacity-90 active:opacity-80"
                   isLoading={decidingAs === "APPROVED"}
                   disabled={decidingAs !== null}
                   onClick={() => decide("APPROVED")}
@@ -283,7 +288,7 @@ export function RequestDetail({ requestId }: { requestId: string }) {
                 </Button>
                 <Button
                   variant="outline"
-                  className="flex-1 border-red-200 text-red-600 hover:bg-red-50"
+                  className="flex-1 border-danger/30 text-danger hover:bg-danger-tint"
                   isLoading={decidingAs === "REJECTED"}
                   disabled={decidingAs !== null}
                   onClick={() => decide("REJECTED")}

@@ -90,7 +90,7 @@ export function RequireSlackConnected({ children }: { children: React.ReactNode 
       </button>
 
       <Card className="w-full max-w-md text-center">
-        <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-indigo-50 text-primary dark:bg-indigo-500/10">
+        <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-primary-tint text-primary">
           <MessageSquare className="size-6" aria-hidden />
         </div>
         <h1 className="font-heading text-lg font-semibold text-foreground">Connect your Slack workspace</h1>

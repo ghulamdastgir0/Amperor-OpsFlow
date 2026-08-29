@@ -9,8 +9,8 @@ function Bar({ label, value, max, valueLabel, tone }: { label: string; value: nu
   return (
     <div className="flex items-center gap-3 text-sm">
       <span className="w-32 shrink-0 truncate text-muted">{label}</span>
-      <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
-        <div className={`h-full rounded-full ${tone}`} style={{ width: `${pct}%` }} />
+      <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-2">
+        <div className={`h-full rounded-full transition-[width] duration-500 ease-out ${tone}`} style={{ width: `${pct}%` }} />
       </div>
       <span className="w-16 shrink-0 text-right text-xs text-muted">{valueLabel}</span>
     </div>

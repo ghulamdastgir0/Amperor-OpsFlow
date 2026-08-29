@@ -40,7 +40,7 @@ export function PolicyList({ policies }: { policies: PolicyDocument[] | null }) 
               onClick={() => setExpandedId(isOpen ? null : policy.id)}
               className="flex w-full items-center gap-3 px-4 py-3.5 text-left"
             >
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-primary">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-tint text-primary">
                 <ScrollText className="size-4" aria-hidden />
               </span>
               <div className="min-w-0 flex-1">
@@ -52,7 +52,7 @@ export function PolicyList({ policies }: { policies: PolicyDocument[] | null }) 
               {policy.restricted && (
                 <span
                   title="Only visible to Finance Approvers and System Admins — hidden from everyone else, including in Assistant answers"
-                  className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-300"
+                  className="inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning-tint px-2 py-0.5 text-xs font-medium text-warning-foreground"
                 >
                   <Lock className="size-3" aria-hidden />
                   Finance/Admin only

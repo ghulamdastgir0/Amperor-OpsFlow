@@ -7,9 +7,9 @@ import { currency } from "@/lib/statusDisplay";
 import { cn } from "@/lib/cn";
 
 function healthColor(pct: number) {
-  if (pct > 90) return { bar: "bg-red-500", text: "text-red-600 dark:text-red-400" };
-  if (pct > 70) return { bar: "bg-amber-500", text: "text-amber-600 dark:text-amber-400" };
-  return { bar: "bg-emerald-500", text: "text-emerald-600 dark:text-emerald-400" };
+  if (pct > 90) return { bar: "bg-danger", text: "text-danger" };
+  if (pct > 70) return { bar: "bg-warning", text: "text-warning" };
+  return { bar: "bg-success", text: "text-success" };
 }
 
 // Math.round() collapses anything under 0.5% to a misleading flat "0%" (e.g.
@@ -26,7 +26,7 @@ function StatTile({
   hint,
   value,
   tone,
-  badgeTone = "bg-primary/10 text-primary",
+  badgeTone = "bg-primary-tint text-primary",
 }: {
   icon: typeof Wallet;
   label: string;
@@ -126,7 +126,7 @@ function DepartmentCard({
                 type="button"
                 onClick={() => setIsEditing(true)}
                 title="Rename this department"
-                className="shrink-0 rounded-full p-0.5 text-muted hover:bg-slate-100 hover:text-foreground dark:hover:bg-white/10"
+                className="shrink-0 rounded-full p-0.5 text-muted transition-colors hover:bg-surface-2 hover:text-foreground"
               >
                 <Pencil className="size-3" aria-hidden />
               </button>
@@ -140,18 +140,18 @@ function DepartmentCard({
               type="button"
               onClick={onDelete}
               title="Remove this department"
-              className="rounded-full p-0.5 text-muted hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10"
+              className="rounded-full p-0.5 text-muted transition-colors hover:bg-danger-tint hover:text-danger"
             >
               <X className="size-3.5" aria-hidden />
             </button>
           )}
         </div>
       </div>
-      <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-white/10">
-        <div className={cn("h-full", health.bar)} style={{ width: `${spentBarPct}%` }} />
+      <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-surface-2">
+        <div className={cn("h-full transition-[width] duration-500 ease-out", health.bar)} style={{ width: `${spentBarPct}%` }} />
         {budget.reserved > 0 && (
           <div
-            className="h-full bg-amber-400/70"
+            className="h-full bg-warning/70 transition-[width] duration-500 ease-out"
             style={{ width: `${reservedBarPct}%` }}
             title={`${currency(budget.reserved)} reserved, pending proof`}
           />
@@ -192,23 +192,15 @@ export function BudgetSummary({
           label="Reserved"
           hint="Set aside for an approved expense that's still awaiting a receipt"
           value={currency(dashboard.totals.reserved)}
-          tone={dashboard.totals.reserved > 0 ? "text-amber-600 dark:text-amber-400" : undefined}
-          badgeTone={
-            dashboard.totals.reserved > 0
-              ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-              : undefined
-          }
+          tone={dashboard.totals.reserved > 0 ? "text-warning" : undefined}
+          badgeTone={dashboard.totals.reserved > 0 ? "bg-warning-tint text-warning" : undefined}
         />
         <StatTile
           icon={PiggyBank}
           label="Remaining Balance"
           value={currency(dashboard.totals.remaining)}
-          tone={dashboard.totals.remaining < 0 ? "text-red-600 dark:text-red-400" : undefined}
-          badgeTone={
-            dashboard.totals.remaining < 0
-              ? "bg-red-500/10 text-red-600 dark:text-red-400"
-              : undefined
-          }
+          tone={dashboard.totals.remaining < 0 ? "text-danger" : undefined}
+          badgeTone={dashboard.totals.remaining < 0 ? "bg-danger-tint text-danger" : undefined}
         />
         <StatTile icon={Percent} label="% Utilized" value={formatPct(utilizedPct)} />
       </div>

@@ -29,8 +29,8 @@ export default function AuthCallbackPage() {
 
   if (!token && connected === "1" && !alreadySignedIn) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 px-6 text-center">
-        <div className="flex size-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+      <div className="animate-fade-in flex min-h-screen flex-col items-center justify-center gap-3 px-6 text-center">
+        <div className="flex size-12 items-center justify-center rounded-full bg-success-tint text-success">
           <CheckCircle2 className="size-6" aria-hidden />
         </div>
         <h1 className="font-heading text-lg font-semibold text-foreground">Workspace connected</h1>

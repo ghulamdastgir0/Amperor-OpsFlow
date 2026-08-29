@@ -12,7 +12,7 @@ export function StatTile({
 }) {
   return (
     <Card className="flex items-center gap-3">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-primary dark:bg-indigo-500/10">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-tint text-primary">
         <Icon className="size-4.5" aria-hidden />
       </span>
       <div>

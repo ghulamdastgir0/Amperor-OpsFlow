@@ -197,7 +197,7 @@ export default function PlatformTenantsPage() {
                 {tenants.map((tenant) => (
                   <tr
                     key={tenant.id}
-                    className="border-b border-border last:border-0 hover:bg-slate-50 dark:hover:bg-white/5"
+                    className="border-b border-border last:border-0 transition-colors hover:bg-surface-2"
                   >
                     <td className="px-4 py-3">
                       <Link href={`/platform/tenants/${tenant.id}`} className="font-medium text-primary hover:underline">
@@ -230,7 +230,7 @@ export default function PlatformTenantsPage() {
                         </button>
                         <button
                           type="button"
-                          className="text-xs font-medium text-red-500 hover:text-red-400"
+                          className="text-xs font-medium text-danger transition-opacity hover:opacity-80"
                           onClick={() => setPendingDelete(tenant)}
                         >
                           Delete

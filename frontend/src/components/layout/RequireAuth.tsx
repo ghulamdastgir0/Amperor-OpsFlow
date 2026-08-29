@@ -56,8 +56,8 @@ export function RequireAuth({
 
   if (roles && user && !roles.includes(user.role)) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 px-6 text-center">
-        <div className="flex size-12 items-center justify-center rounded-full bg-red-50 text-red-600">
+      <div className="animate-fade-in flex min-h-screen flex-col items-center justify-center gap-3 px-6 text-center">
+        <div className="flex size-12 items-center justify-center rounded-full bg-danger-tint text-danger">
           <ShieldAlert className="size-6" aria-hidden />
         </div>
         <h1 className="font-heading text-lg font-semibold text-foreground">Access restricted</h1>

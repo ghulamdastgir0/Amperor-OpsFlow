@@ -1,4 +1,5 @@
 import { CheckCircle2, CircleDashed, Loader2, XCircle, MinusCircle } from "lucide-react";
+import { motion } from "motion/react";
 import type { ExecutionStep } from "@/lib/types";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { EXECUTION_STEP_DISPLAY } from "@/lib/statusDisplay";
@@ -12,11 +13,11 @@ const STATUS_ICON: Record<ExecutionStep["status"], typeof CheckCircle2> = {
 };
 
 const STATUS_ICON_CLASSES: Record<ExecutionStep["status"], string> = {
-  PENDING: "text-slate-300",
-  IN_PROGRESS: "text-blue-500 animate-spin",
-  COMPLETED: "text-emerald-500",
-  FAILED: "text-red-500",
-  SKIPPED: "text-slate-300",
+  PENDING: "text-muted-foreground",
+  IN_PROGRESS: "text-info animate-spin",
+  COMPLETED: "text-success",
+  FAILED: "text-danger",
+  SKIPPED: "text-muted-foreground",
 };
 
 export function ExecutionTimeline({ steps }: { steps: ExecutionStep[] }) {
@@ -35,7 +36,13 @@ export function ExecutionTimeline({ steps }: { steps: ExecutionStep[] }) {
         const display = EXECUTION_STEP_DISPLAY[step.status];
         const isLast = i === ordered.length - 1;
         return (
-          <li key={step.id} className="relative flex gap-3 pb-6 last:pb-0">
+          <motion.li
+            key={step.id}
+            initial={{ opacity: 0, x: -6 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.2, delay: i * 0.04, ease: [0.16, 1, 0.3, 1] }}
+            className="relative flex gap-3 pb-6 last:pb-0"
+          >
             {!isLast && <span className="absolute left-[9px] top-6 h-full w-px bg-border" aria-hidden />}
             <Icon className={`size-[18px] shrink-0 ${STATUS_ICON_CLASSES[step.status]}`} aria-hidden />
             <div className="min-w-0 pt-px">
@@ -45,7 +52,7 @@ export function ExecutionTimeline({ steps }: { steps: ExecutionStep[] }) {
                 {step.completedAt && ` · ${new Date(step.completedAt).toLocaleTimeString()}`}
               </p>
             </div>
-          </li>
+          </motion.li>
         );
       })}
     </ol>

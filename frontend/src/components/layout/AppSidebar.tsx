@@ -16,6 +16,7 @@ import {
   MoreHorizontal,
   X,
 } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useAuth } from "@/hooks/useAuth";
 import { clearAuthToken, usersApi } from "@/lib/api";
 import { Avatar } from "@/components/ui/Avatar";
@@ -90,19 +91,25 @@ export function AppSidebar() {
         <nav className="flex flex-1 flex-col gap-1 px-3">
           {items.map((item) => {
             const Icon = item.icon;
+            const active = isActive(item);
             return (
               <Link
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                  isActive(item)
-                    ? "bg-indigo-50 text-primary dark:bg-indigo-500/10"
-                    : "text-muted hover:bg-slate-50 hover:text-foreground dark:hover:bg-white/5",
+                  "relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                  active ? "text-primary" : "text-muted hover:bg-surface-2 hover:text-foreground",
                 )}
               >
-                <Icon className="size-4" aria-hidden />
-                {item.label}
+                {active && (
+                  <motion.span
+                    layoutId="sidebar-active"
+                    transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                    className="absolute inset-0 rounded-lg bg-primary-tint"
+                  />
+                )}
+                <Icon className="relative size-4" aria-hidden />
+                <span className="relative">{item.label}</span>
               </Link>
             );
           })}
@@ -116,7 +123,7 @@ export function AppSidebar() {
           <div className="flex items-center gap-2.5 border-t border-border px-4 py-4">
             <Link
               href="/profile"
-              className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md -m-1.5 p-1.5 hover:bg-slate-50 dark:hover:bg-white/5"
+              className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md -m-1.5 p-1.5 transition-colors hover:bg-surface-2"
             >
               <Avatar name={displayName} />
               <div className="min-w-0 flex-1">
@@ -128,7 +135,7 @@ export function AppSidebar() {
               type="button"
               onClick={handleSignOut}
               aria-label="Sign out"
-              className="rounded-md p-1.5 text-muted hover:bg-slate-100 hover:text-foreground dark:hover:bg-white/5"
+              className="rounded-md p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-foreground"
             >
               <LogOut className="size-4" />
             </button>
@@ -146,7 +153,7 @@ export function AppSidebar() {
               key={item.href}
               href={item.href}
               className={cn(
-                "flex flex-1 flex-col items-center justify-center gap-1 text-[11px] font-medium",
+                "flex flex-1 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors",
                 active ? "text-primary" : "text-muted",
               )}
             >
@@ -168,86 +175,97 @@ export function AppSidebar() {
       </nav>
 
       {/* Mobile: "More" sheet — remaining nav items, theme, profile, sign out */}
-      {moreOpen && (
-        <div className="fixed inset-0 z-50 md:hidden">
-          <button
-            type="button"
-            aria-label="Close menu"
-            onClick={() => setMoreOpen(false)}
-            className="absolute inset-0 bg-slate-900/40"
-          />
-          <div className="absolute inset-x-0 bottom-0 rounded-t-2xl border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] shadow-xl">
-            <div className="flex items-center justify-between border-b border-border px-4 py-3">
-              <span className="font-heading text-sm font-semibold text-foreground">More</span>
-              <button
-                type="button"
-                onClick={() => setMoreOpen(false)}
-                aria-label="Close"
-                className="rounded-md p-1 text-muted hover:bg-slate-100 hover:text-foreground dark:hover:bg-white/5"
-              >
-                <X className="size-4" aria-hidden />
-              </button>
-            </div>
-
-            <div className="flex max-h-[60vh] flex-col overflow-y-auto px-2 py-2">
-              {overflowItems.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setMoreOpen(false)}
-                    className={cn(
-                      "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium",
-                      isActive(item)
-                        ? "bg-indigo-50 text-primary dark:bg-indigo-500/10"
-                        : "text-foreground hover:bg-slate-50 dark:hover:bg-white/5",
-                    )}
-                  >
-                    <Icon className="size-4" aria-hidden />
-                    {item.label}
-                  </Link>
-                );
-              })}
-
-              {overflowItems.length > 0 && <div className="my-2 border-t border-border" />}
-
-              <div className="flex items-center justify-between px-3 py-2">
-                <span className="text-sm font-medium text-foreground">Theme</span>
-                <ThemeToggle />
+      <AnimatePresence>
+        {moreOpen && (
+          <div className="fixed inset-0 z-50 md:hidden">
+            <motion.button
+              type="button"
+              aria-label="Close menu"
+              onClick={() => setMoreOpen(false)}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              className="absolute inset-0 bg-black/50"
+            />
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+              className="absolute inset-x-0 bottom-0 rounded-t-2xl border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow-lg)]"
+            >
+              <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                <span className="font-heading text-sm font-semibold text-foreground">More</span>
+                <button
+                  type="button"
+                  onClick={() => setMoreOpen(false)}
+                  aria-label="Close"
+                  className="rounded-md p-1 text-muted transition-colors hover:bg-surface-2 hover:text-foreground"
+                >
+                  <X className="size-4" aria-hidden />
+                </button>
               </div>
 
-              {user && (
-                <>
-                  <div className="my-2 border-t border-border" />
-                  <Link
-                    href="/profile"
-                    onClick={() => setMoreOpen(false)}
-                    className="flex items-center gap-2.5 rounded-lg px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-white/5"
-                  >
-                    <Avatar name={displayName} />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">{displayName}</p>
-                      <p className="truncate text-xs text-muted">{user.role.replace(/_/g, " ")}</p>
-                    </div>
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMoreOpen(false);
-                      handleSignOut();
-                    }}
-                    className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
-                  >
-                    <LogOut className="size-4" aria-hidden />
-                    Sign out
-                  </button>
-                </>
-              )}
-            </div>
+              <div className="flex max-h-[60vh] flex-col overflow-y-auto px-2 py-2">
+                {overflowItems.map((item) => {
+                  const Icon = item.icon;
+                  const active = isActive(item);
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setMoreOpen(false)}
+                      className={cn(
+                        "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                        active ? "bg-primary-tint text-primary" : "text-foreground hover:bg-surface-2",
+                      )}
+                    >
+                      <Icon className="size-4" aria-hidden />
+                      {item.label}
+                    </Link>
+                  );
+                })}
+
+                {overflowItems.length > 0 && <div className="my-2 border-t border-border" />}
+
+                <div className="flex items-center justify-between px-3 py-2">
+                  <span className="text-sm font-medium text-foreground">Theme</span>
+                  <ThemeToggle />
+                </div>
+
+                {user && (
+                  <>
+                    <div className="my-2 border-t border-border" />
+                    <Link
+                      href="/profile"
+                      onClick={() => setMoreOpen(false)}
+                      className="flex items-center gap-2.5 rounded-lg px-3 py-2.5 transition-colors hover:bg-surface-2"
+                    >
+                      <Avatar name={displayName} />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-foreground">{displayName}</p>
+                        <p className="truncate text-xs text-muted">{user.role.replace(/_/g, " ")}</p>
+                      </div>
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMoreOpen(false);
+                        handleSignOut();
+                      }}
+                      className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-danger transition-colors hover:bg-danger-tint"
+                    >
+                      <LogOut className="size-4" aria-hidden />
+                      Sign out
+                    </button>
+                  </>
+                )}
+              </div>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
     </>
   );
 }

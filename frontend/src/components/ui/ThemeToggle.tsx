@@ -2,6 +2,7 @@
 
 import { useTheme } from "next-themes";
 import { Sun, Moon, Monitor } from "lucide-react";
+import { motion } from "motion/react";
 import { cn } from "@/lib/cn";
 
 const CYCLE_ORDER = ["light", "dark", "system"] as const;
@@ -31,7 +32,7 @@ export function CompactThemeToggle({ className }: { className?: string }) {
       aria-label={`Theme: ${CYCLE_LABEL[current]}. Switch to ${CYCLE_LABEL[next]}`}
       onClick={() => setTheme(next)}
       className={cn(
-        "flex size-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-slate-100 hover:text-foreground dark:hover:bg-white/10",
+        "flex size-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-2 hover:text-foreground",
         className,
       )}
     >
@@ -53,11 +54,11 @@ export function ThemeToggle() {
   // client — render an inert placeholder rather than guessing, to avoid a
   // hydration mismatch.
   if (!theme) {
-    return <div className="h-[30px] rounded-lg bg-slate-100 dark:bg-white/5" />;
+    return <div className="h-[30px] rounded-lg bg-surface-2" />;
   }
 
   return (
-    <div className="flex items-center gap-1 rounded-lg bg-slate-100 p-1 dark:bg-white/5">
+    <div className="flex items-center gap-1 rounded-lg bg-surface-2 p-1">
       {OPTIONS.map((option) => {
         const Icon = option.icon;
         const isActive = theme === option.value;
@@ -69,13 +70,18 @@ export function ThemeToggle() {
             aria-label={option.label}
             onClick={() => setTheme(option.value)}
             className={cn(
-              "flex flex-1 items-center justify-center rounded-md py-1.5 transition-colors",
-              isActive
-                ? "bg-surface text-primary shadow-sm"
-                : "text-muted hover:text-foreground",
+              "relative flex flex-1 items-center justify-center rounded-md py-1.5 transition-colors",
+              isActive ? "text-primary" : "text-muted hover:text-foreground",
             )}
           >
-            <Icon className="size-3.5" aria-hidden />
+            {isActive && (
+              <motion.span
+                layoutId="theme-toggle-active"
+                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                className="absolute inset-0 rounded-md bg-surface shadow-[var(--shadow-sm)]"
+              />
+            )}
+            <Icon className="relative size-3.5" aria-hidden />
           </button>
         );
       })}

@@ -128,7 +128,7 @@ export default function LoginPage() {
             />
 
             {error && (
-              <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700">
+              <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-400">
                 <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
                 <span>{error}</span>
               </div>
@@ -147,7 +147,7 @@ export default function LoginPage() {
 
           <a
             href={`${API_URL}/auth/slack/login`}
-            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-border bg-surface text-sm font-medium text-foreground transition-colors hover:bg-slate-50"
+            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-border bg-surface text-sm font-medium text-foreground transition-colors hover:bg-slate-50 dark:hover:bg-white/5"
           >
             <svg className="size-4" viewBox="0 0 2447.6 2452.5" aria-hidden>
               <path

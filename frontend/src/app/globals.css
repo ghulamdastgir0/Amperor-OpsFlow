@@ -3,46 +3,131 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --background: #f8fafc;
+  /* Neutrals */
+  --background: #f5f6fa;
   --surface: #ffffff;
-  --foreground: #1e1b2e;
+  --surface-2: #f4f5f9;
+  --foreground: #13151f;
   --muted: #64748b;
-  --border: #e2e8f0;
+  --muted-foreground: #94a3b8;
+  --border: #e4e7ef;
+  --border-strong: #cbd1e0;
+
+  /* Brand */
   --primary: #4f46e5;
   --primary-hover: #4338ca;
+  --primary-active: #3730a3;
   --primary-foreground: #ffffff;
+  --primary-tint: #eef0ff;
   --secondary: #0d9488;
+  --secondary-tint: #e6fbf8;
   --ring: #4f46e5;
+
+  /* Semantic status */
+  --success: #059669;
+  --success-tint: #ecfdf5;
+  --success-foreground: #065f46;
+  --warning: #d97706;
+  --warning-tint: #fffbeb;
+  --warning-foreground: #92400e;
+  --danger: #dc2626;
+  --danger-tint: #fef2f2;
+  --danger-foreground: #991b1b;
+  --info: #2563eb;
+  --info-tint: #eff6ff;
+  --info-foreground: #1e40af;
+
+  /* Elevation (shadows read as soft depth on light backgrounds) */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.06);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 280ms;
 }
 
 .dark {
-  --background: #0a0e17;
-  --surface: #121826;
-  --foreground: #e7e9f0;
+  --background: #0a0d15;
+  --surface: #12151f;
+  --surface-2: #1a1e2c;
+  --foreground: #e9ebf3;
   --muted: #94a3b8;
-  --border: #232b3d;
-  --primary: #6366f1;
-  --primary-hover: #818cf8;
-  --primary-foreground: #ffffff;
+  --muted-foreground: #6b7690;
+  --border: #232838;
+  --border-strong: #333a4f;
+
+  --primary: #818cf8;
+  --primary-hover: #a5b4fc;
+  --primary-active: #6366f1;
+  --primary-foreground: #101225;
+  --primary-tint: rgba(129, 140, 248, 0.14);
   --secondary: #2dd4bf;
-  --ring: #6366f1;
+  --secondary-tint: rgba(45, 212, 191, 0.14);
+  --ring: #818cf8;
+
+  --success: #34d399;
+  --success-tint: rgba(52, 211, 153, 0.14);
+  --success-foreground: #6ee7b7;
+  --warning: #fbbf24;
+  --warning-tint: rgba(251, 191, 36, 0.14);
+  --warning-foreground: #fcd34d;
+  --danger: #f87171;
+  --danger-tint: rgba(248, 113, 113, 0.14);
+  --danger-foreground: #fca5a5;
+  --info: #60a5fa;
+  --info-tint: rgba(96, 165, 250, 0.14);
+  --info-foreground: #93c5fd;
+
+  /* Elevation reads as a lightened surface + soft highlight, not a black shadow */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.03);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+
   --color-primary: var(--primary);
   --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-tint: var(--primary-tint);
   --color-secondary: var(--secondary);
+  --color-secondary-tint: var(--secondary-tint);
   --color-ring: var(--ring);
+
+  --color-success: var(--success);
+  --color-success-tint: var(--success-tint);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-tint: var(--warning-tint);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-danger: var(--danger);
+  --color-danger-tint: var(--danger-tint);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-info: var(--info);
+  --color-info-tint: var(--info-tint);
+  --color-info-foreground: var(--info-foreground);
+
   --font-sans: var(--font-inter);
   --font-heading: var(--font-jakarta);
+
   --animate-shimmer: shimmer 1.6s ease-in-out infinite;
-  --animate-toast-in: toast-in 0.2s ease-out;
+  --animate-toast-in: toast-in var(--duration-slow) var(--ease-out);
+  --animate-fade-in: fade-in var(--duration-base) var(--ease-out);
+  --animate-scale-in: scale-in var(--duration-base) var(--ease-out);
+  --animate-slide-up: slide-up var(--duration-slow) var(--ease-out);
 
   @keyframes shimmer {
     0% {
@@ -55,13 +140,45 @@
   @keyframes toast-in {
     from {
       opacity: 0;
-      transform: translateY(-8px);
+      transform: translateY(-8px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes scale-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  @keyframes slide-up {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
     }
     to {
       opacity: 1;
       transform: translateY(0);
     }
   }
+}
+
+* {
+  border-color: var(--border);
 }
 
 body {
@@ -72,6 +189,29 @@ body {
 
 .font-heading {
   font-family: var(--font-jakarta), var(--font-inter), ui-sans-serif, sans-serif;
+}
+
+/* Focus ring: consistent, theme-aware, only shown for keyboard navigation */
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Custom themed scrollbar so it doesn't look like an unstyled light-mode leftover in dark UI */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
 
 .skeleton {
@@ -91,5 +231,17 @@ body {
   }
   100% {
     background-position: 400px 0;
+  }
+}
+
+/* Respect the user's motion preference: collapse to instant, no exceptions */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }

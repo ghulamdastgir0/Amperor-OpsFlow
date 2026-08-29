@@ -357,7 +357,7 @@ export default function ProfilePage() {
       <div>
         <PageHeader title="Your Profile" description="Manage your account details, password, and Slack connection." />
         <Card>
-          <p className="text-sm text-red-600">{error}</p>
+          <p className="text-sm text-danger">{error}</p>
         </Card>
       </div>
     );

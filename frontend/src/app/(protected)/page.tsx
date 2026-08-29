@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Bot, Inbox, Wallet, UserCog, ScrollText, ArrowRight, Clock3 } from "lucide-react";
+import { motion } from "motion/react";
 import { useAuth } from "@/hooks/useAuth";
 import { requestsApi } from "@/lib/api";
 import type { OpsRequest, Role } from "@/lib/types";
@@ -79,25 +80,31 @@ export default function Home() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="grid gap-4 sm:grid-cols-2 lg:col-span-2">
-          {sections.map((section) => {
+          {sections.map((section, index) => {
             const Icon = section.icon;
             return (
-              <Link
+              <motion.div
                 key={section.href}
-                href={section.href}
-                className="group flex flex-col gap-3 rounded-xl border border-border bg-surface p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25, delay: index * 0.05, ease: [0.16, 1, 0.3, 1] }}
               >
-                <div className="flex size-10 items-center justify-center rounded-lg bg-indigo-50 text-primary">
-                  <Icon className="size-5" aria-hidden />
-                </div>
-                <div>
-                  <h2 className="font-heading flex items-center gap-1.5 text-sm font-semibold text-foreground">
-                    {section.title}
-                    <ArrowRight className="size-3.5 -translate-x-1 opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100" />
-                  </h2>
-                  <p className="mt-1.5 text-sm text-muted">{section.description}</p>
-                </div>
-              </Link>
+                <Link
+                  href={section.href}
+                  className="group flex h-full flex-col gap-3 rounded-xl border border-border bg-surface p-5 shadow-[var(--shadow-sm)] transition-all hover:-translate-y-0.5 hover:shadow-[var(--shadow-md)]"
+                >
+                  <div className="flex size-10 items-center justify-center rounded-lg bg-primary-tint text-primary">
+                    <Icon className="size-5" aria-hidden />
+                  </div>
+                  <div>
+                    <h2 className="font-heading flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                      {section.title}
+                      <ArrowRight className="size-3.5 -translate-x-1 opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100" />
+                    </h2>
+                    <p className="mt-1.5 text-sm text-muted">{section.description}</p>
+                  </div>
+                </Link>
+              </motion.div>
             );
           })}
         </div>
@@ -124,7 +131,7 @@ export default function Home() {
                   <li key={r.id}>
                     <Link
                       href={`/requests/${r.id}`}
-                      className="flex items-start justify-between gap-3 rounded-lg px-2 py-1.5 -mx-2 hover:bg-slate-50 dark:hover:bg-white/5"
+                      className="flex items-start justify-between gap-3 rounded-lg px-2 py-1.5 -mx-2 transition-colors hover:bg-surface-2"
                     >
                       <span className="min-w-0 flex-1 truncate text-sm text-foreground">
                         {r.parsedIntent || r.rawPrompt}
