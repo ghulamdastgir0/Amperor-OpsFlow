@@ -65,7 +65,7 @@ const SELECT_CLASSES =
 // option — kept distinct from "" (which means "no filter, show all") and from
 // any real id/name, which are opaque strings we don't control.
 const NONE_FILTER = "__none__";
-const EMPLOYEE_PAGE_SIZE = 10;
+const EMPLOYEE_PAGE_SIZE = 5;
 
 function RoleRow({
   role,
