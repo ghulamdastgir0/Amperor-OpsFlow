@@ -1,8 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { AlertCircle, ArrowUpRight, Megaphone, Pencil, Plus, Tag, UserPlus, Wand2, X } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowUpRight,
+  ChevronLeft,
+  ChevronRight,
+  Megaphone,
+  Pencil,
+  Plus,
+  Search,
+  Tag,
+  UserPlus,
+  Wand2,
+  X,
+} from "lucide-react";
 import { budgetsApi, employeeRolesApi, usersApi } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import type { EmployeeRole, Role, User } from "@/lib/types";
@@ -42,6 +55,17 @@ const ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: "FINANCE_APPROVER", label: "Finance Approver" },
   { value: "SYSTEM_ADMIN", label: "System Admin" },
 ];
+
+// Shared with the per-row Access role / Team lead selects and the directory
+// filter bar below, so every dropdown in this page looks and behaves alike.
+const SELECT_CLASSES =
+  "w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-50";
+
+// Sentinel values for the department/custom-role filters' "has none of these"
+// option — kept distinct from "" (which means "no filter, show all") and from
+// any real id/name, which are opaque strings we don't control.
+const NONE_FILTER = "__none__";
+const EMPLOYEE_PAGE_SIZE = 10;
 
 function RoleRow({
   role,
@@ -489,6 +513,61 @@ function EmployeeAssignments({
   const [pendingRemove, setPendingRemove] = useState<User | null>(null);
   const [isRemoving, setIsRemoving] = useState(false);
 
+  // Directory search/filter/pagination — a flat list stops being usable well
+  // before 200 employees, so this narrows what's rendered instead of relying
+  // on the browser to scroll through everyone every time. All client-side:
+  // GET /users returns the whole tenant in one shot with no query params for
+  // search/paging (see users.controller.ts), and a few hundred rows is cheap
+  // to filter in memory — this isn't built to scale to a paginated backend.
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState<Role | "">("");
+  const [departmentFilter, setDepartmentFilter] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"" | "active" | "blocked">("");
+  const [page, setPage] = useState(1);
+
+  const hasActiveFilters =
+    search.trim() !== "" || roleFilter !== "" || departmentFilter !== "" || tagFilter !== "" || statusFilter !== "";
+
+  function clearFilters() {
+    setSearch("");
+    setRoleFilter("");
+    setDepartmentFilter("");
+    setTagFilter("");
+    setStatusFilter("");
+  }
+
+  const filteredUsers = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return users.filter((u) => {
+      if (query && !u.name.toLowerCase().includes(query) && !u.email.toLowerCase().includes(query)) {
+        return false;
+      }
+      if (roleFilter && u.role !== roleFilter) return false;
+      if (departmentFilter === NONE_FILTER && u.department) return false;
+      if (departmentFilter && departmentFilter !== NONE_FILTER && u.department !== departmentFilter) return false;
+      const tagIds = (u.employeeRoles ?? []).map((r) => r.id);
+      if (tagFilter === NONE_FILTER && tagIds.length > 0) return false;
+      if (tagFilter && tagFilter !== NONE_FILTER && !tagIds.includes(tagFilter)) return false;
+      if (statusFilter === "active" && !u.isActive) return false;
+      if (statusFilter === "blocked" && u.isActive) return false;
+      return true;
+    });
+  }, [users, search, roleFilter, departmentFilter, tagFilter, statusFilter]);
+
+  // Any filter change can shrink the result set below the current page —
+  // reset to page 1 rather than land on a page that's now empty.
+  useEffect(() => {
+    setPage(1);
+  }, [search, roleFilter, departmentFilter, tagFilter, statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / EMPLOYEE_PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pagedUsers = filteredUsers.slice(
+    (currentPage - 1) * EMPLOYEE_PAGE_SIZE,
+    currentPage * EMPLOYEE_PAGE_SIZE,
+  );
+
   async function applyRoleChange(user: User, role: Role) {
     setIsChangingRole(true);
     try {
@@ -626,143 +705,292 @@ function EmployeeAssignments({
       />
 
       {users.length === 0 ? (
-        <p className="text-sm text-muted">No employees yet.</p>
+        <EmptyState
+          icon={UserPlus}
+          title="No employees yet"
+          description="Add your first employee using the button above."
+        />
       ) : (
-        <div className="flex flex-col gap-3">
-          {users.map((u) => (
-            <div key={u.id} className="rounded-xl border border-border bg-surface p-4">
-              {/* Header: identity + status/actions — always on one row, never
-                  disturbed by however many role tags or fields wrap below. */}
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-3">
-                  <Avatar name={u.name || u.email} />
-                  <div className="min-w-0">
-                    <p className="truncate font-medium text-foreground">{u.name}</p>
-                    <p className="truncate text-xs text-muted">{u.email}</p>
+        <>
+          <div className="mb-4 flex flex-col gap-3">
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by name or email…"
+                aria-label="Search employees by name or email"
+                className="w-full rounded-lg border border-border bg-surface py-2 pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground transition-colors duration-150 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="flex flex-col gap-1 text-xs font-medium text-muted">
+                Access role
+                <select
+                  value={roleFilter}
+                  onChange={(e) => setRoleFilter(e.target.value as Role | "")}
+                  className={SELECT_CLASSES}
+                >
+                  <option value="">All access roles</option>
+                  {ROLE_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-xs font-medium text-muted">
+                Department
+                <select
+                  value={departmentFilter}
+                  onChange={(e) => setDepartmentFilter(e.target.value)}
+                  className={SELECT_CLASSES}
+                >
+                  <option value="">All departments</option>
+                  <option value={NONE_FILTER}>No department</option>
+                  {departmentOptions.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-xs font-medium text-muted">
+                Custom role
+                <select
+                  value={tagFilter}
+                  onChange={(e) => setTagFilter(e.target.value)}
+                  className={SELECT_CLASSES}
+                >
+                  <option value="">All custom roles</option>
+                  <option value={NONE_FILTER}>No custom role</option>
+                  {roles.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-xs font-medium text-muted">
+                Status
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as "" | "active" | "blocked")}
+                  className={SELECT_CLASSES}
+                >
+                  <option value="">All statuses</option>
+                  <option value="active">Active only</option>
+                  <option value="blocked">Blocked only</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-muted">
+                {hasActiveFilters
+                  ? `${filteredUsers.length} of ${users.length} employee${users.length === 1 ? "" : "s"} match`
+                  : `${users.length} employee${users.length === 1 ? "" : "s"}`}
+              </p>
+              {hasActiveFilters && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+          </div>
+
+          {filteredUsers.length === 0 ? (
+            <EmptyState
+              icon={Search}
+              title="No matches"
+              description="Try a different search term, or clear your filters."
+            />
+          ) : (
+            <>
+              <div className="flex flex-col gap-3">
+                {pagedUsers.map((u) => (
+                <div key={u.id} className="rounded-xl border border-border bg-surface p-4">
+                  {/* Header: identity + status/actions — always on one row, never
+                      disturbed by however many role tags or fields wrap below. */}
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <Avatar name={u.name || u.email} />
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-foreground">{u.name}</p>
+                        <p className="truncate text-xs text-muted">{u.email}</p>
+                      </div>
+                    </div>
+    
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={pendingLeaveUserId === u.id}
+                        onClick={() => applyLeaveChange(u, !u.isOnLeave)}
+                        title="Toggle on-leave status — while on leave, requests routed to a role they hold are rerouted to a system admin instead"
+                        className="disabled:opacity-50"
+                      >
+                        <Badge tone={u.isOnLeave ? "amber" : "green"}>{u.isOnLeave ? "On Leave" : "Available"}</Badge>
+                      </button>
+    
+                      {u.id !== currentUser?.userId && (
+                        <>
+                          <Badge tone={u.isActive ? "green" : "slate"}>{u.isActive ? "Active" : "Inactive"}</Badge>
+                          <button
+                            type="button"
+                            className="text-xs font-medium text-muted transition-colors hover:text-foreground"
+                            onClick={() => setPendingBlockToggle(u)}
+                          >
+                            {u.isActive ? "Block" : "Unblock"}
+                          </button>
+                          <button
+                            type="button"
+                            className="text-xs font-medium text-danger transition-opacity hover:opacity-80"
+                            onClick={() => setPendingRemove(u)}
+                          >
+                            Remove
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+    
+                  {/* Fields: fixed 3-column grid so every row's controls line up
+                      regardless of label/value length. */}
+                  <div className="mt-3.5 grid gap-3 border-t border-border pt-3.5 sm:grid-cols-3">
+                    <label className="flex flex-col gap-1.5 text-sm text-foreground">
+                      <span className="font-medium">Access role</span>
+                      <select
+                        value={u.role}
+                        disabled={isChangingRole}
+                        onChange={(e) => handleRoleSelect(u, e.target.value as Role)}
+                        title="Controls what they can do in the app"
+                        className={SELECT_CLASSES}
+                      >
+                        {ROLE_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+    
+                    <DepartmentPicker
+                      label="Department"
+                      value={u.department ?? ""}
+                      disabled={pendingDepartmentUserId === u.id}
+                      onChange={(value) => applyDepartmentChange(u, value)}
+                      options={departmentOptions}
+                      onCreated={onDepartmentCreated}
+                      allowCreate
+                      emptyLabel="No department"
+                      title="Used to route expense approvals to the right delegate"
+                      className="w-full"
+                    />
+    
+                    <label className="flex flex-col gap-1.5 text-sm text-foreground">
+                      <span className="font-medium">Team lead</span>
+                      <select
+                        value={u.teamLeadId ?? ""}
+                        disabled={pendingTeamLeadUserId === u.id}
+                        onChange={(e) => applyTeamLeadChange(u, e.target.value)}
+                        title="Notified directly on this employee's leave requests and 'ask my team lead' queries"
+                        className={SELECT_CLASSES}
+                      >
+                        <option value="">No team lead</option>
+                        {users
+                          .filter((candidate) => candidate.id !== u.id)
+                          .map((candidate) => (
+                            // Email always shown, not just on a name collision — two
+                            // employees sharing a name (e.g. two "Ghulam Dastgir"s)
+                            // were otherwise indistinguishable in this list, so
+                            // there was no reliable way to tell which one you'd
+                            // actually assigned (caught in testing 2026-08-26).
+                            <option key={candidate.id} value={candidate.id}>
+                              {candidate.name} ({candidate.email})
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                  </div>
+    
+                  {/* Custom role tags — own row, so wrapping here never shifts
+                      the fields grid above or the header below. */}
+                  <div className="mt-3.5 flex flex-wrap items-center gap-2 border-t border-border pt-3.5">
+                    <span className="text-xs font-medium text-muted">Roles</span>
+                    {(u.employeeRoles ?? []).length === 0 && (
+                      <span className="text-xs text-muted-foreground">None yet</span>
+                    )}
+                    {(u.employeeRoles ?? []).map((r) => (
+                      <span
+                        key={r.id}
+                        title={r.description ?? undefined}
+                        className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 py-1 pl-2.5 pr-1 text-xs font-medium text-foreground"
+                      >
+                        {r.name}
+                        <button
+                          type="button"
+                          onClick={() => removeTag(u, r.id)}
+                          disabled={pendingTagChangeUserId === u.id}
+                          className="rounded-full p-0.5 text-muted transition-colors hover:bg-danger-tint hover:text-danger disabled:opacity-50"
+                        >
+                          <X className="size-3" aria-hidden />
+                        </button>
+                      </span>
+                    ))}
+                    <AddRoleTag user={u} roles={roles} onAdd={(roleId) => addTag(u, roleId)} />
                   </div>
                 </div>
-
-                <div className="flex shrink-0 items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={pendingLeaveUserId === u.id}
-                    onClick={() => applyLeaveChange(u, !u.isOnLeave)}
-                    title="Toggle on-leave status — while on leave, requests routed to a role they hold are rerouted to a system admin instead"
-                    className="disabled:opacity-50"
-                  >
-                    <Badge tone={u.isOnLeave ? "amber" : "green"}>{u.isOnLeave ? "On Leave" : "Available"}</Badge>
-                  </button>
-
-                  {u.id !== currentUser?.userId && (
-                    <>
-                      <Badge tone={u.isActive ? "green" : "slate"}>{u.isActive ? "Active" : "Inactive"}</Badge>
-                      <button
-                        type="button"
-                        className="text-xs font-medium text-muted transition-colors hover:text-foreground"
-                        onClick={() => setPendingBlockToggle(u)}
-                      >
-                        {u.isActive ? "Block" : "Unblock"}
-                      </button>
-                      <button
-                        type="button"
-                        className="text-xs font-medium text-danger transition-opacity hover:opacity-80"
-                        onClick={() => setPendingRemove(u)}
-                      >
-                        Remove
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Fields: fixed 3-column grid so every row's controls line up
-                  regardless of label/value length. */}
-              <div className="mt-3.5 grid gap-3 border-t border-border pt-3.5 sm:grid-cols-3">
-                <label className="flex flex-col gap-1.5 text-sm text-foreground">
-                  <span className="font-medium">Access role</span>
-                  <select
-                    value={u.role}
-                    disabled={isChangingRole}
-                    onChange={(e) => handleRoleSelect(u, e.target.value as Role)}
-                    title="Controls what they can do in the app"
-                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {ROLE_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <DepartmentPicker
-                  label="Department"
-                  value={u.department ?? ""}
-                  disabled={pendingDepartmentUserId === u.id}
-                  onChange={(value) => applyDepartmentChange(u, value)}
-                  options={departmentOptions}
-                  onCreated={onDepartmentCreated}
-                  allowCreate
-                  emptyLabel="No department"
-                  title="Used to route expense approvals to the right delegate"
-                  className="w-full"
-                />
-
-                <label className="flex flex-col gap-1.5 text-sm text-foreground">
-                  <span className="font-medium">Team lead</span>
-                  <select
-                    value={u.teamLeadId ?? ""}
-                    disabled={pendingTeamLeadUserId === u.id}
-                    onChange={(e) => applyTeamLeadChange(u, e.target.value)}
-                    title="Notified directly on this employee's leave requests and 'ask my team lead' queries"
-                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <option value="">No team lead</option>
-                    {users
-                      .filter((candidate) => candidate.id !== u.id)
-                      .map((candidate) => (
-                        // Email always shown, not just on a name collision — two
-                        // employees sharing a name (e.g. two "Ghulam Dastgir"s)
-                        // were otherwise indistinguishable in this list, so
-                        // there was no reliable way to tell which one you'd
-                        // actually assigned (caught in testing 2026-08-26).
-                        <option key={candidate.id} value={candidate.id}>
-                          {candidate.name} ({candidate.email})
-                        </option>
-                      ))}
-                  </select>
-                </label>
-              </div>
-
-              {/* Custom role tags — own row, so wrapping here never shifts
-                  the fields grid above or the header below. */}
-              <div className="mt-3.5 flex flex-wrap items-center gap-2 border-t border-border pt-3.5">
-                <span className="text-xs font-medium text-muted">Roles</span>
-                {(u.employeeRoles ?? []).length === 0 && (
-                  <span className="text-xs text-muted-foreground">None yet</span>
-                )}
-                {(u.employeeRoles ?? []).map((r) => (
-                  <span
-                    key={r.id}
-                    title={r.description ?? undefined}
-                    className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 py-1 pl-2.5 pr-1 text-xs font-medium text-foreground"
-                  >
-                    {r.name}
-                    <button
-                      type="button"
-                      onClick={() => removeTag(u, r.id)}
-                      disabled={pendingTagChangeUserId === u.id}
-                      className="rounded-full p-0.5 text-muted transition-colors hover:bg-danger-tint hover:text-danger disabled:opacity-50"
-                    >
-                      <X className="size-3" aria-hidden />
-                    </button>
-                  </span>
                 ))}
-                <AddRoleTag user={u} roles={roles} onAdd={(roleId) => addTag(u, roleId)} />
               </div>
-            </div>
-          ))}
-        </div>
+
+              {totalPages > 1 && (
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3.5">
+                  <p className="text-xs text-muted">
+                    Showing {(currentPage - 1) * EMPLOYEE_PAGE_SIZE + 1}–
+                    {Math.min(currentPage * EMPLOYEE_PAGE_SIZE, filteredUsers.length)} of {filteredUsers.length}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={currentPage === 1}
+                      onClick={() => setPage((p) => p - 1)}
+                    >
+                      <ChevronLeft className="size-3.5" aria-hidden />
+                      Prev
+                    </Button>
+                    <span className="text-xs text-muted">
+                      Page {currentPage} of {totalPages}
+                    </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={currentPage === totalPages}
+                      onClick={() => setPage((p) => p + 1)}
+                    >
+                      Next
+                      <ChevronRight className="size-3.5" aria-hidden />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </>
       )}
 
       <ConfirmDialog
