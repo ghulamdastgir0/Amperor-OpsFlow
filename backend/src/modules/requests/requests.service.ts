@@ -27,6 +27,8 @@ import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { OcrService } from '../slack/ocr.service';
 import { BudgetsService } from '../budgets/budgets.service';
 import { StorageService } from '../../common/storage/storage.service';
+import { RealtimeService } from '../realtime/realtime.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { randomUUID } from 'crypto';
@@ -107,6 +109,8 @@ export class RequestsService {
     private readonly ocr: OcrService,
     private readonly budgets: BudgetsService,
     private readonly storage: StorageService,
+    private readonly realtime: RealtimeService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async create(tenantId: string, requesterId: string, dto: CreateRequestDto) {
@@ -148,6 +152,14 @@ export class RequestsService {
         startedAt: new Date(),
       },
     });
+
+    // Surface the brand-new request in staff Action Hubs immediately;
+    // runPipeline emits again once its status settles.
+    this.realtime.emitRequestChanged(
+      tenantId,
+      { id: request.id, status: request.status },
+      { requesterId },
+    );
 
     return request;
   }
@@ -314,6 +326,22 @@ export class RequestsService {
 
     if (isResolved) {
       await this.notifyRequesterOfProgress(tenantId, request.requester, note);
+    }
+
+    this.realtime.emitRequestChanged(
+      tenantId,
+      { id: updated.id, status: updated.status },
+      { requesterId: request.requesterId },
+    );
+    if (isResolved) {
+      await this.notifications.create({
+        tenantId,
+        userId: request.requesterId,
+        kind: 'REQUEST_PROGRESS',
+        title: 'Update on your request',
+        body: note,
+        requestId,
+      });
     }
     return updated;
   }
@@ -488,6 +516,16 @@ export class RequestsService {
   // has whatever attachments it's going to have (immediately for text-only requests, after
   // Slack file ingestion finishes for attachment requests).
   async runPipeline(tenantId: string, requestId: string) {
+    const settled = await this.executePipeline(tenantId, requestId);
+    this.realtime.emitRequestChanged(
+      tenantId,
+      { id: settled.id, status: settled.status },
+      { requesterId: settled.requesterId },
+    );
+    return settled;
+  }
+
+  private async executePipeline(tenantId: string, requestId: string) {
     const request = await this.prisma.request.findFirst({
       where: { id: requestId, tenantId },
       include: { attachments: true },
@@ -716,19 +754,48 @@ export class RequestsService {
     // (request.status here is the PRE-decision stage — PENDING_ROLE_APPROVAL
     // means they just approved it themselves via decideRoleStage and already
     // know).
-    if (
+    const notifyRoutedHolders =
       (result.status === RequestStatus.APPROVED ||
         result.status === RequestStatus.PENDING_PAYMENT) &&
-      request.routedRoleId &&
-      request.status !== RequestStatus.PENDING_ROLE_APPROVAL
-    ) {
+      !!request.routedRoleId &&
+      request.status !== RequestStatus.PENDING_ROLE_APPROVAL;
+    const routedHolderIds = notifyRoutedHolders
+      ? await this.getRoleHolderIds(tenantId, request.routedRoleId!)
+      : [];
+    if (notifyRoutedHolders) {
       await this.notifyRoutedRoleOfApproval(
         tenantId,
-        request.routedRoleId,
+        request.routedRoleId!,
         effectiveAmount,
         request.rawPrompt,
       );
     }
+
+    // In-app real-time layer, alongside the Slack DMs above. `request.changed`
+    // is a signal (id + status) — the client re-fetches through the
+    // RBAC-filtered REST endpoints. Notifications are the persisted bell feed.
+    this.realtime.emitRequestChanged(
+      tenantId,
+      { id: requestId, status: result.status },
+      { requesterId: request.requesterId, extraUserIds: routedHolderIds },
+    );
+    await this.notifyRequesterInApp(
+      tenantId,
+      request.requesterId,
+      requestId,
+      result.status,
+      request.rawPrompt,
+    );
+    if (routedHolderIds.length > 0) {
+      await this.notifications.createMany(routedHolderIds, {
+        tenantId,
+        kind: 'REQUEST_ROUTED',
+        title: 'A request you can action was approved',
+        body: request.rawPrompt,
+        requestId,
+      });
+    }
+
     // `result` here is whatever the stage helper's bare `setStatus()` update
     // returned — no `executionSteps`/`attachments`/`policyCitations` relations
     // included, since setStatus is a plain Prisma update, not findOne's
@@ -1114,6 +1181,19 @@ export class RequestsService {
       request.requester,
       request.rawPrompt,
     );
+    this.realtime.emitRequestChanged(
+      tenantId,
+      { id: requestId, status: RequestStatus.COMPLETED },
+      { requesterId: request.requesterId },
+    );
+    await this.notifications.create({
+      tenantId,
+      userId: request.requesterId,
+      kind: 'REQUEST_PAYMENT_SENT',
+      title: 'Payment has been sent for your request',
+      body: request.rawPrompt,
+      requestId,
+    });
     return this.findOne(tenantId, requestId, {
       userId: actingUser.userId,
       role: actingUser.role,
@@ -1287,6 +1367,61 @@ export class RequestsService {
         `Failed to notify routed role of approval: ${(error as Error).message}`,
       );
     }
+  }
+
+  // Every active holder of an EmployeeRole, by user id — used for the
+  // real-time signal + bell notifications (unlike notifyRoutedRoleOfApproval's
+  // own query, this doesn't require a slackUserId).
+  private async getRoleHolderIds(
+    tenantId: string,
+    routedRoleId: string,
+  ): Promise<string[]> {
+    const holders = await this.prisma.user.findMany({
+      where: {
+        tenantId,
+        isActive: true,
+        employeeRoles: { some: { employeeRoleId: routedRoleId } },
+      },
+      select: { id: true },
+    });
+    return holders.map((h) => h.id);
+  }
+
+  // The in-app (bell) counterpart to notifyRequesterOfDecision /
+  // notifyRequesterOfPendingPayment. Best-effort via NotificationsService,
+  // which never throws.
+  private async notifyRequesterInApp(
+    tenantId: string,
+    requesterId: string,
+    requestId: string,
+    status: RequestStatus,
+    rawPrompt: string,
+  ) {
+    const map: Partial<Record<RequestStatus, { kind: string; title: string }>> =
+      {
+        [RequestStatus.APPROVED]: {
+          kind: 'REQUEST_APPROVED',
+          title: 'Your request was approved',
+        },
+        [RequestStatus.REJECTED]: {
+          kind: 'REQUEST_REJECTED',
+          title: 'Your request was rejected',
+        },
+        [RequestStatus.PENDING_PAYMENT]: {
+          kind: 'REQUEST_PENDING_PAYMENT',
+          title: 'Your request was approved — payment is being processed',
+        },
+      };
+    const entry = map[status];
+    if (!entry) return;
+    await this.notifications.create({
+      tenantId,
+      userId: requesterId,
+      kind: entry.kind,
+      title: entry.title,
+      body: rawPrompt,
+      requestId,
+    });
   }
 
   private async resolveBotToken(tenantId: string): Promise<string | undefined> {

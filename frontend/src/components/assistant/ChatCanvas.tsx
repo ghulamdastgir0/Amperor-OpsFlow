@@ -5,7 +5,8 @@ import { AlertCircle, Bot, Send, Sparkles } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { assistantApi } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
-import type { Message } from "@/lib/types";
+import { useRealtimeEvent } from "@/hooks/useRealtime";
+import type { Message, AssistantStreamStart, AssistantStreamToken } from "@/lib/types";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 
@@ -23,6 +24,9 @@ export function ChatCanvas() {
   const [isSending, setIsSending] = useState(false);
   const [isSlow, setIsSlow] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The assistant reply as it streams in over the socket, before the POST
+  // resolves with the persisted messages. null = not streaming / no socket.
+  const [streaming, setStreaming] = useState<{ id: string; text: string } | null>(null);
 
   async function send(content: string) {
     if (!content.trim()) return;
@@ -57,6 +61,9 @@ export function ChatCanvas() {
       clearTimeout(slowTimer);
       setIsSlow(false);
       setIsSending(false);
+      // The POST response (persisted messages) is now authoritative — drop
+      // the transient streamed copy.
+      setStreaming(null);
     }
   }
 
@@ -64,6 +71,19 @@ export function ChatCanvas() {
     event.preventDefault();
     send(input);
   }
+
+  // Live token streaming of the assistant's reply. Purely additive — if no
+  // socket is connected these never fire and the POST-resolves-with-a-blob
+  // behaviour is unchanged. Only trust events for the thread we're sending on
+  // (or, on the very first message, any thread while we're mid-send).
+  useRealtimeEvent<AssistantStreamStart>("assistant.start", (e) => {
+    if (!isSending) return;
+    if (conversationId && e.conversationId !== conversationId) return;
+    setStreaming({ id: e.messageId, text: "" });
+  });
+  useRealtimeEvent<AssistantStreamToken>("assistant.token", (e) => {
+    setStreaming((s) => (s && s.id === e.messageId ? { ...s, text: s.text + e.delta } : s));
+  });
 
   return (
     <div className="flex h-[65vh] flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-[var(--shadow-sm)]">
@@ -134,7 +154,7 @@ export function ChatCanvas() {
           })}
         </AnimatePresence>
 
-        {isSending && (
+        {isSending && !streaming && (
           <motion.div
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
@@ -153,6 +173,23 @@ export function ChatCanvas() {
               {isSlow && (
                 <p className="text-xs text-muted">Still working — this can take up to a minute.</p>
               )}
+            </div>
+          </motion.div>
+        )}
+
+        {isSending && streaming && (
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.15 }}
+            className="flex items-end gap-2.5"
+          >
+            <span className="mb-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-secondary-tint text-secondary">
+              <Bot className="size-4" aria-hidden />
+            </span>
+            <div className="max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-bl-sm border border-border bg-surface-2 px-3.5 py-2.5 text-sm text-foreground">
+              {streaming.text}
+              <span className="ml-0.5 inline-block h-3.5 w-px animate-pulse bg-foreground align-middle" />
             </div>
           </motion.div>
         )}

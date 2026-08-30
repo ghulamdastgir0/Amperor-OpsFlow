@@ -9,3 +9,4 @@ export * as employeeRolesApi from './employeeRoles';
 export * as budgetsApi from './budgets';
 export * as platformApi from './platform';
 export * as policiesApi from './policies';
+export * as notificationsApi from './notifications';

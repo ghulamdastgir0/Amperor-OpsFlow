@@ -27,4 +27,10 @@ export default () => ({
   storage: {
     bucket: process.env.GCS_BUCKET_NAME,
   },
+  // When set, socket.io uses the Redis adapter so emits fan out across every
+  // Cloud Run instance. Unset (local/dev, single instance) → default
+  // in-memory adapter, no Redis required. See RedisIoAdapter / main.ts.
+  redis: {
+    url: process.env.REDIS_URL,
+  },
 });

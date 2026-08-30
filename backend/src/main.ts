@@ -7,6 +7,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+import { RealtimeIoAdapter } from './modules/realtime/realtime-io.adapter';
 
 async function bootstrap() {
   // rawBody: needed for Slack request-signature verification, which hashes the
@@ -40,10 +41,22 @@ async function bootstrap() {
   });
 
   app.setGlobalPrefix('api/v1');
+  const frontendUrl = config.get<string>('frontendUrl');
   app.enableCors({
-    origin: config.get<string>('frontendUrl'),
+    origin: frontendUrl,
     credentials: true,
   });
+
+  // Real-time (socket.io) transport. Mounts on the raw HTTP server at
+  // /socket.io/ — independent of the api/v1 prefix. Uses the Redis adapter
+  // when REDIS_URL is set (multi-instance Cloud Run), otherwise the default
+  // in-memory adapter.
+  const realtimeAdapter = new RealtimeIoAdapter(app, frontendUrl ?? true);
+  const redisUrl = config.get<string>('redis.url');
+  if (redisUrl) {
+    await realtimeAdapter.connectToRedis(redisUrl);
+  }
+  app.useWebSocketAdapter(realtimeAdapter);
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalInterceptors(new TransformInterceptor());

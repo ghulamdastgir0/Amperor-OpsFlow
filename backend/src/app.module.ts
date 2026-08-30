@@ -22,6 +22,8 @@ import { LlmModule } from './modules/llm/llm.module';
 import { BudgetsModule } from './modules/budgets/budgets.module';
 import { PlatformAdminModule } from './modules/platform/platform-admin.module';
 import { EmployeeRolesModule } from './modules/employee-roles/employee-roles.module';
+import { RealtimeModule } from './modules/realtime/realtime.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -33,6 +35,9 @@ import { EmployeeRolesModule } from './modules/employee-roles/employee-roles.mod
     PrismaModule,
     StorageModule,
     AuthModule,
+    // Global — JwtModule (from AuthModule) is registered by the time this is
+    // scanned; the gateway needs it for handshake auth.
+    RealtimeModule,
     TenantsModule,
     UsersModule,
     FinanceDelegationsModule,
@@ -45,6 +50,7 @@ import { EmployeeRolesModule } from './modules/employee-roles/employee-roles.mod
     BudgetsModule,
     PlatformAdminModule,
     EmployeeRolesModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [

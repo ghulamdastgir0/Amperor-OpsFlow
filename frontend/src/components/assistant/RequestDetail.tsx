@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AlertCircle, ArrowLeft, Check, Paperclip, X } from "lucide-react";
 import { requestsApi, usersApi } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
+import { useRealtimeEvent } from "@/hooks/useRealtime";
 import { useToast } from "@/components/ui/Toast";
 import type { OpsRequest, Role } from "@/lib/types";
 import { ExecutionTimeline } from "./ExecutionTimeline";
@@ -65,6 +66,13 @@ export function RequestDetail({ requestId }: { requestId: string }) {
       .then((profile) => setMyRoleIds((profile.employeeRoles ?? []).map((r) => r.id)))
       .catch(() => setMyRoleIds([]));
   }, []);
+
+  // Live: this request's status/timeline changed (someone decided it, the
+  // pipeline advanced, proof was attached). Re-fetch the full detail — for
+  // any viewer, not just after this viewer's own action.
+  useRealtimeEvent<{ id: string }>("request.changed", (e) => {
+    if (e.id === requestId) load();
+  });
 
   async function decide(decision: "APPROVED" | "REJECTED") {
     if (decision === "REJECTED" && showReasonFor !== "REJECTED") {

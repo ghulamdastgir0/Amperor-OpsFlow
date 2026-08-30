@@ -20,6 +20,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useAuth } from "@/hooks/useAuth";
 import { clearAuthToken, usersApi } from "@/lib/api";
 import { Avatar } from "@/components/ui/Avatar";
+import { NotificationBell } from "@/components/layout/NotificationBell";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { cn } from "@/lib/cn";
 import type { Role } from "@/lib/types";
@@ -86,6 +87,9 @@ export function AppSidebar() {
             <Sparkles className="size-4" aria-hidden />
           </div>
           <span className="font-heading text-base font-semibold text-foreground">OpsFlow</span>
+          <div className="ml-auto">
+            <NotificationBell />
+          </div>
         </div>
 
         <nav className="flex flex-1 flex-col gap-1 px-3">
@@ -197,14 +201,17 @@ export function AppSidebar() {
             >
               <div className="flex items-center justify-between border-b border-border px-4 py-3">
                 <span className="font-heading text-sm font-semibold text-foreground">More</span>
-                <button
-                  type="button"
-                  onClick={() => setMoreOpen(false)}
-                  aria-label="Close"
-                  className="rounded-md p-1 text-muted transition-colors hover:bg-surface-2 hover:text-foreground"
-                >
-                  <X className="size-4" aria-hidden />
-                </button>
+                <div className="flex items-center gap-1">
+                  <NotificationBell placement="up" />
+                  <button
+                    type="button"
+                    onClick={() => setMoreOpen(false)}
+                    aria-label="Close"
+                    className="rounded-md p-1 text-muted transition-colors hover:bg-surface-2 hover:text-foreground"
+                  >
+                    <X className="size-4" aria-hidden />
+                  </button>
+                </div>
               </div>
 
               <div className="flex max-h-[60vh] flex-col overflow-y-auto px-2 py-2">

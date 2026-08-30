@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AlertCircle, CheckCircle2, Inbox, Paperclip, MessageSquare, Bot as BotIcon, Mail, Users } from "lucide-react";
 import { motion } from "motion/react";
 import { requestsApi } from "@/lib/api";
+import { useRealtimeEvent } from "@/hooks/useRealtime";
 import type { OpsRequest, RequestChannel } from "@/lib/types";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -40,12 +41,25 @@ export function RequestsList() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<(typeof TABS)[number]["key"]>("pending");
 
-  useEffect(() => {
+  const reload = useCallback(() => {
     requestsApi
       .listRequests()
       .then(setRequests)
       .catch(() => setError("Could not load requests. Is the backend running?"));
   }, []);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  // Live: a request was filed/decided somewhere. `request.changed` is just a
+  // signal — re-fetch through the RBAC-filtered list endpoint (rows can enter
+  // or leave the visible set). Debounced so a burst collapses to one call.
+  const refetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useRealtimeEvent("request.changed", () => {
+    if (refetchTimer.current) clearTimeout(refetchTimer.current);
+    refetchTimer.current = setTimeout(reload, 300);
+  });
 
   const filtered = useMemo(() => {
     if (!requests) return [];

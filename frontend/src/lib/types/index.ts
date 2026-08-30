@@ -278,3 +278,39 @@ export interface ApiEnvelope<T> {
   success: true;
   data: T;
 }
+
+// In-app notification (the bell feed) — the persisted counterpart to the
+// Slack DMs sent from the backend's RequestsService.notify*.
+export interface AppNotification {
+  id: string;
+  tenantId: string;
+  userId: string;
+  kind: string;
+  title: string;
+  body: string;
+  requestId?: string | null;
+  readAt?: string | null;
+  createdAt: string;
+}
+
+// ── Real-time (socket.io) event payloads ──────────────────────────────
+// `request.changed` is a signal only (id + status); consumers re-fetch
+// through the RBAC-filtered REST endpoints.
+export interface RequestChangedEvent {
+  id: string;
+  status: RequestStatus;
+}
+export interface AssistantStreamStart {
+  conversationId: string;
+  messageId: string;
+}
+export interface AssistantStreamToken {
+  conversationId: string;
+  messageId: string;
+  delta: string;
+}
+export interface AssistantStreamDone {
+  conversationId: string;
+  messageId: string;
+  requestId: string | null;
+}

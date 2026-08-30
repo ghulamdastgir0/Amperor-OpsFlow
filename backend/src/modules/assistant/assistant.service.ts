@@ -20,6 +20,7 @@ import { PoliciesService } from '../policies/policies.service';
 import { EmployeeRolesService } from '../employee-roles/employee-roles.service';
 import { BudgetsService } from '../budgets/budgets.service';
 import { UsersService } from '../users/users.service';
+import { RealtimeService } from '../realtime/realtime.service';
 import { RESTRICTED_DOC_VISIBLE_ROLES } from '../policies/policies.service';
 import { buildAssistantTools } from './agent/assistant.tools';
 import { buildAssistantGraph } from './agent/assistant.graph';
@@ -248,6 +249,7 @@ export class AssistantService {
     private readonly employeeRoles: EmployeeRolesService,
     private readonly budgets: BudgetsService,
     private readonly users: UsersService,
+    private readonly realtime: RealtimeService,
     config: ConfigService,
   ) {
     const model = new ChatGoogleGenerativeAI({
@@ -292,6 +294,23 @@ export class AssistantService {
       },
     });
 
+    // Create the assistant row up front (empty) so token deltas have a real
+    // messageId to attach to. The final content is written in below; the
+    // HTTP response still returns the fully-populated row, so a client with
+    // no socket connection sees identical behaviour to before.
+    const assistantMessage = await this.prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: MessageRole.ASSISTANT,
+        content: '',
+      },
+    });
+
+    this.realtime.emitToUser(userId, 'assistant.start', {
+      conversationId: conversation.id,
+      messageId: assistantMessage.id,
+    });
+
     const { replyText, requestId } = await this.orchestrate(
       tenantId,
       userId,
@@ -300,15 +319,23 @@ export class AssistantService {
       userMessage.createdAt,
       dto.content,
       channel,
+      (delta) =>
+        this.realtime.emitToUser(userId, 'assistant.token', {
+          conversationId: conversation.id,
+          messageId: assistantMessage.id,
+          delta,
+        }),
     );
 
-    const assistantMessage = await this.prisma.message.create({
-      data: {
-        conversationId: conversation.id,
-        role: MessageRole.ASSISTANT,
-        content: replyText,
-        requestId,
-      },
+    const finalAssistantMessage = await this.prisma.message.update({
+      where: { id: assistantMessage.id },
+      data: { content: replyText, requestId },
+    });
+
+    this.realtime.emitToUser(userId, 'assistant.done', {
+      conversationId: conversation.id,
+      messageId: assistantMessage.id,
+      requestId: requestId ?? null,
     });
 
     // Message.create doesn't touch its parent Conversation row, so without
@@ -323,7 +350,7 @@ export class AssistantService {
 
     return {
       conversation: updatedConversation,
-      messages: [userMessage, assistantMessage],
+      messages: [userMessage, finalAssistantMessage],
     };
   }
 
@@ -352,6 +379,7 @@ export class AssistantService {
     currentMessageCreatedAt: Date,
     content: string,
     channel: RequestChannel = RequestChannel.assistant_ui,
+    onToken?: (delta: string) => void,
   ): Promise<{ replyText: string; requestId?: string }> {
     try {
       const [history, roles, budgetDepartments] = await Promise.all([
@@ -367,7 +395,13 @@ export class AssistantService {
         new HumanMessage(content),
       ];
 
-      const result = await this.graph.invoke(
+      // One execution, streamed. streamMode 'messages' gives token chunks for
+      // live typing; 'values' gives the full graph state on each step, whose
+      // last emission is the authoritative final message list (used for the
+      // persisted reply + file_request detection). Never re-run on failure —
+      // the graph has side effects (file_request actually files) — so a throw
+      // falls through to the same canned reply invoke() used to give.
+      const stream = await this.graph.stream(
         { messages },
         {
           configurable: {
@@ -378,14 +412,36 @@ export class AssistantService {
             channel,
           },
           recursionLimit: RECURSION_LIMIT,
+          streamMode: ['values', 'messages'],
         },
       );
 
-      const finalMessages = result.messages;
+      let finalMessages: BaseMessage[] = [];
+      let streamedText = '';
+      for await (const part of stream as AsyncIterable<[string, unknown]>) {
+        const [mode, chunk] = part;
+        if (mode === 'messages') {
+          const [msgChunk] = chunk as [{ content?: unknown }, unknown];
+          const text = this.chunkText(msgChunk?.content);
+          if (text) {
+            streamedText += text;
+            onToken?.(text);
+          }
+        } else if (mode === 'values') {
+          const state = chunk as { messages?: unknown };
+          if (Array.isArray(state.messages)) {
+            finalMessages = state.messages as BaseMessage[];
+          }
+        }
+      }
+
       const lastAiMessage = finalMessages
         .filter((m) => m instanceof AIMessage)
         .at(-1);
-      const replyText = (lastAiMessage?.content as string) || FALLBACK_REPLY;
+      const replyText =
+        (lastAiMessage?.content as string) ||
+        streamedText.trim() ||
+        FALLBACK_REPLY;
 
       const filed = finalMessages
         .filter(
@@ -406,6 +462,29 @@ export class AssistantService {
       );
       return { replyText: FALLBACK_REPLY };
     }
+  }
+
+  // An AIMessageChunk's content is usually a plain string for Gemini, but can
+  // be an array of content parts — flatten either to text for streaming.
+  private chunkText(content: unknown): string {
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+      return content
+        .map((part) => {
+          if (typeof part === 'string') return part;
+          if (
+            part &&
+            typeof part === 'object' &&
+            'text' in part &&
+            typeof (part as { text: unknown }).text === 'string'
+          ) {
+            return (part as { text: string }).text;
+          }
+          return '';
+        })
+        .join('');
+    }
+    return '';
   }
 
   // Appends the tenant's actual role catalog and budget categories so the

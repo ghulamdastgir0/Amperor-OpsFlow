@@ -112,6 +112,7 @@ model Tenant {
   budgets            Budget[]
   employeeRoles      EmployeeRole[]
   roleBroadcasts     RoleBroadcast[]
+  notifications      Notification[]
 
   @@map("tenants")
 }
@@ -157,6 +158,7 @@ model User {
   employeeRoles       UserEmployeeRole[]
   sentBroadcasts      RoleBroadcast[]
   teamMembers         User[]              @relation("TeamLeadOf")
+  notifications       Notification[]
 
   @@unique([tenantId, email])
   @@map("users")
@@ -560,4 +562,32 @@ model AuditLog {
 
   @@index([tenantId, entityType, entityId])
   @@map("audit_logs")
+}
+
+// ─────────────────────────────────────────────
+// In-app notifications — the real-time counterpart to the Slack DMs sent
+// from RequestsService.notify*. Written whenever one of those fires and
+// pushed live over the socket (RealtimeService.emitToUser 'notification.new');
+// persisted so the notification bell survives a reload / offline gap.
+// ─────────────────────────────────────────────
+
+model Notification {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  // Free-form label, not an enum, so a new notification type never needs a
+  // migration: REQUEST_APPROVED | REQUEST_REJECTED | REQUEST_PENDING_PAYMENT
+  // | REQUEST_ROUTED | REQUEST_PROGRESS | REQUEST_PAYMENT_SENT.
+  kind      String
+  title     String
+  body      String    @db.Text
+  requestId String?   @map("request_id") @db.Uuid
+  readAt    DateTime? @map("read_at") @db.Timestamptz
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@map("notifications")
 }

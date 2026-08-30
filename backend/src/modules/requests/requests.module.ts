@@ -5,6 +5,7 @@ import { FinanceDelegationsModule } from '../finance-delegations/finance-delegat
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 import { OcrModule } from '../slack/ocr.module';
 import { BudgetsModule } from '../budgets/budgets.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { RequestsService } from './requests.service';
 import { RequestsController } from './requests.controller';
 
@@ -16,6 +17,7 @@ import { RequestsController } from './requests.controller';
     HttpModule,
     OcrModule,
     BudgetsModule,
+    NotificationsModule,
   ],
   controllers: [RequestsController],
   providers: [RequestsService],
