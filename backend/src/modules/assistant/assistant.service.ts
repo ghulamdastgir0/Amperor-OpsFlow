@@ -398,64 +398,90 @@ export class AssistantService {
       // One execution, streamed. streamMode 'messages' gives token chunks for
       // live typing; 'values' gives the full graph state on each step, whose
       // last emission is the authoritative final message list (used for the
-      // persisted reply + file_request detection). Never re-run on failure —
-      // the graph has side effects (file_request actually files) — so a throw
-      // falls through to the same canned reply invoke() used to give.
-      const stream = await this.graph.stream(
-        { messages },
-        {
-          configurable: {
-            tenantId,
-            userId,
-            userRole,
-            rawPrompt: content,
-            channel,
-          },
-          recursionLimit: RECURSION_LIMIT,
-          streamMode: ['values', 'messages'],
+      // persisted reply + file_request detection).
+      //
+      // Retry at most once, and ONLY when the previous attempt produced
+      // nothing at all — no streamed token, no tool message. The graph has
+      // side effects (file_request actually files), so a mid-run failure must
+      // never be replayed; but a transient upstream 5xx/quota blip on the very
+      // first model turn is safe to retry and is the common intermittent
+      // failure seen in practice.
+      const config = {
+        configurable: {
+          tenantId,
+          userId,
+          userRole,
+          rawPrompt: content,
+          channel,
         },
-      );
+        recursionLimit: RECURSION_LIMIT,
+      };
 
-      let finalMessages: BaseMessage[] = [];
-      let streamedText = '';
-      for await (const part of stream as AsyncIterable<[string, unknown]>) {
-        const [mode, chunk] = part;
-        if (mode === 'messages') {
-          const [msgChunk] = chunk as [{ content?: unknown }, unknown];
-          const text = this.chunkText(msgChunk?.content);
-          if (text) {
-            streamedText += text;
-            onToken?.(text);
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        let finalMessages: BaseMessage[] = [];
+        let streamedText = '';
+        let sawToken = false;
+        let sawToolMessage = false;
+        try {
+          const stream = await this.graph.stream(
+            { messages },
+            { ...config, streamMode: ['values', 'messages'] },
+          );
+          for await (const part of stream as AsyncIterable<[string, unknown]>) {
+            const [mode, chunk] = part;
+            if (mode === 'messages') {
+              const [msgChunk] = chunk as [{ content?: unknown }, unknown];
+              const text = this.chunkText(msgChunk?.content);
+              if (text) {
+                sawToken = true;
+                streamedText += text;
+                onToken?.(text);
+              }
+            } else if (mode === 'values') {
+              const state = chunk as { messages?: unknown };
+              if (Array.isArray(state.messages)) {
+                finalMessages = state.messages as BaseMessage[];
+                if (finalMessages.some((m) => m instanceof ToolMessage)) {
+                  sawToolMessage = true;
+                }
+              }
+            }
           }
-        } else if (mode === 'values') {
-          const state = chunk as { messages?: unknown };
-          if (Array.isArray(state.messages)) {
-            finalMessages = state.messages as BaseMessage[];
+
+          const lastAiMessage = finalMessages
+            .filter((m) => m instanceof AIMessage)
+            .at(-1);
+          const replyText =
+            (lastAiMessage?.content as string) ||
+            streamedText.trim() ||
+            FALLBACK_REPLY;
+
+          const filed = finalMessages
+            .filter(
+              (m): m is ToolMessage =>
+                m instanceof ToolMessage && m.name === 'file_request',
+            )
+            .map((m) => this.parseFileRequestResult(m.content as string))
+            .find((parsed) => !!parsed);
+
+          // requestId is still tracked internally (Message.requestId, for the
+          // execution-timeline/citation viewer) but deliberately never shown
+          // to the user in chat — an internal UUID isn't meaningful to them.
+          return { replyText, requestId: filed?.requestId };
+        } catch (err) {
+          lastError = err;
+          if (attempt === 0 && !sawToken && !sawToolMessage) {
+            this.logger.warn(
+              `Assistant stream failed before any output, retrying once: ${(err as Error).message}`,
+            );
+            await new Promise((r) => setTimeout(r, 800));
+            continue;
           }
+          throw err;
         }
       }
-
-      const lastAiMessage = finalMessages
-        .filter((m) => m instanceof AIMessage)
-        .at(-1);
-      const replyText =
-        (lastAiMessage?.content as string) ||
-        streamedText.trim() ||
-        FALLBACK_REPLY;
-
-      const filed = finalMessages
-        .filter(
-          (m): m is ToolMessage =>
-            m instanceof ToolMessage && m.name === 'file_request',
-        )
-        .map((m) => this.parseFileRequestResult(m.content as string))
-        .find((parsed) => !!parsed);
-
-      // requestId is still tracked internally (Message.requestId, for the
-      // execution-timeline/citation viewer) but deliberately never shown to
-      // the user in chat — an internal UUID isn't meaningful to them, and
-      // exposing it needlessly surfaces internal system detail.
-      return { replyText, requestId: filed?.requestId };
+      throw lastError;
     } catch (error) {
       this.logger.warn(
         `Orchestration failed, falling back to canned reply: ${(error as Error).message}`,

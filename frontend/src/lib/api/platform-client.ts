@@ -24,7 +24,11 @@ platformApiClient.interceptors.request.use((config) => {
 platformApiClient.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
-    if (error.response?.status === 401 && typeof window !== 'undefined') {
+    // A 401 from the platform login call itself is just "wrong credentials" —
+    // the login page renders that inline. Redirecting here would reload the
+    // page and wipe the error before it's seen.
+    const isLoginRequest = (error.config?.url ?? '').includes('auth/login');
+    if (error.response?.status === 401 && !isLoginRequest && typeof window !== 'undefined') {
       window.localStorage.removeItem(PLATFORM_TOKEN_KEY);
       window.dispatchEvent(new Event(PLATFORM_AUTH_CHANGE_EVENT));
       // eslint-disable-next-line @next/next/no-location-assign-relative-destination

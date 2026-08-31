@@ -1,20 +1,29 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { AlertCircle, Bot, Send, Sparkles } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { assistantApi } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { useRealtimeEvent } from "@/hooks/useRealtime";
-import type { Message, AssistantStreamStart, AssistantStreamToken } from "@/lib/types";
+import type { Message, Role, AssistantStreamStart, AssistantStreamToken } from "@/lib/types";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 
-const SUGGESTIONS = ["Submit an expense", "Check my department's budget", "Request time off"];
+// The assistant's get_budget_summary tool returns real figures only to these
+// two roles (see backend assistant.tools.ts) — offering the budget shortcut
+// to anyone else just leads to a guaranteed refusal.
+const BUDGET_ROLES: Role[] = ["SYSTEM_ADMIN", "FINANCE_APPROVER"];
 // Replies can take up to ~100s (multiple sequential LLM tool-calling
 // round trips) — without this, a slow-but-working reply looks identical
 // to a stuck one, and users refresh mid-request instead of waiting.
 const SLOW_REPLY_HINT_MS = 8000;
+// A distinctive fragment of the backend's FALLBACK_REPLY (AssistantService) —
+// when the reply contains this, the engine had a transient failure and a plain
+// resend usually works, so say so rather than leaving the user guessing.
+// Substring (not ===) so a minor reword of the backend copy doesn't silently
+// break detection.
+const ENGINE_BUSY_FRAGMENT = "trouble reaching the assistant engine";
 
 export function ChatCanvas() {
   const { user } = useAuth();
@@ -27,6 +36,14 @@ export function ChatCanvas() {
   // The assistant reply as it streams in over the socket, before the POST
   // resolves with the persisted messages. null = not streaming / no socket.
   const [streaming, setStreaming] = useState<{ id: string; text: string } | null>(null);
+
+  const suggestions = useMemo(
+    () =>
+      user && BUDGET_ROLES.includes(user.role)
+        ? ["Submit an expense", "Check my department's budget", "Request time off"]
+        : ["Submit an expense", "Request time off", "Ask HR a question"],
+    [user],
+  );
 
   async function send(content: string) {
     if (!content.trim()) return;
@@ -53,6 +70,10 @@ export function ChatCanvas() {
       const result = await assistantApi.sendMessage(content, conversationId);
       setConversationId(result.conversation.id);
       setMessages((prev) => [...prev.filter((m) => m.id !== optimisticId), ...result.messages]);
+      const reply = result.messages.find((m) => m.role === "ASSISTANT");
+      if (reply?.content.includes(ENGINE_BUSY_FRAGMENT)) {
+        setError("The assistant engine is busy right now — send your message again in a moment.");
+      }
     } catch {
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
       setInput(content);
@@ -107,7 +128,7 @@ export function ChatCanvas() {
               </p>
             </div>
             <div className="flex flex-wrap justify-center gap-2">
-              {SUGGESTIONS.map((s) => (
+              {suggestions.map((s) => (
                 <button
                   key={s}
                   type="button"
@@ -187,9 +208,14 @@ export function ChatCanvas() {
             <span className="mb-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-secondary-tint text-secondary">
               <Bot className="size-4" aria-hidden />
             </span>
-            <div className="max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-bl-sm border border-border bg-surface-2 px-3.5 py-2.5 text-sm text-foreground">
-              {streaming.text}
-              <span className="ml-0.5 inline-block h-3.5 w-px animate-pulse bg-foreground align-middle" />
+            <div className="flex flex-col gap-1.5">
+              <div className="max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-bl-sm border border-border bg-surface-2 px-3.5 py-2.5 text-sm text-foreground">
+                {streaming.text}
+                <span className="ml-0.5 inline-block h-3.5 w-px animate-pulse bg-foreground align-middle" />
+              </div>
+              {isSlow && !streaming.text && (
+                <p className="text-xs text-muted">Still working — this can take up to a minute.</p>
+              )}
             </div>
           </motion.div>
         )}

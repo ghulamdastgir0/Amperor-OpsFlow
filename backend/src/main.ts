@@ -40,6 +40,34 @@ async function bootstrap() {
     next();
   });
 
+  // body-parser / raw-body errors (unparseable JSON, an over-limit body) are
+  // thrown by Express middleware that runs BEFORE Nest's router, so they never
+  // reach the global exception filter — Express' finalhandler would answer
+  // with a bare, envelope-less string. Catch them here and match the API's
+  // standard error shape + statuses.
+  app.use(
+    (
+      err: (Error & { type?: string }) | null,
+      _req: Request,
+      res: Response,
+      next: NextFunction,
+    ) => {
+      const mapped =
+        err?.type === 'entity.too.large'
+          ? { status: 413, message: 'Request body is too large' }
+          : err?.type === 'entity.parse.failed'
+            ? { status: 400, message: 'Malformed JSON body' }
+            : null;
+      if (!mapped || res.headersSent) return next(err);
+      res.status(mapped.status).json({
+        success: false,
+        statusCode: mapped.status,
+        message: mapped.message,
+        timestamp: new Date().toISOString(),
+      });
+    },
+  );
+
   app.setGlobalPrefix('api/v1');
   const frontendUrl = config.get<string>('frontendUrl');
   app.enableCors({

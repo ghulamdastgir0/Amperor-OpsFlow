@@ -13,12 +13,13 @@ import {
 import { FilesInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
-import { Role, RequestStatus } from '@prisma/client';
+import { Role } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { DecideRequestDto } from './dto/decide-request.dto';
+import { ListRequestsQueryDto } from './dto/list-requests-query.dto';
 import { RequestsService } from './requests.service';
 import { StorageService } from '../../common/storage/storage.service';
 
@@ -50,16 +51,12 @@ export class RequestsController {
   @Get()
   findAll(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('status') status?: string,
+    @Query() query: ListRequestsQueryDto,
   ) {
-    const validStatus =
-      status && Object.values(RequestStatus).includes(status as RequestStatus)
-        ? (status as RequestStatus)
-        : undefined;
     return this.requestsService.findAll(
       user.tenantId,
       { userId: user.userId, role: user.role },
-      validStatus,
+      query.status,
     );
   }
 

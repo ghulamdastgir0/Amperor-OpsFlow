@@ -28,6 +28,26 @@ const PRISMA_MESSAGE: Record<string, string> = {
   P2003: 'Referenced record does not exist',
 };
 
+// body-parser / raw-body throw plain `http-errors` (not Nest HttpExceptions):
+// a `.type` string plus a numeric `.status`. Map the two we actually hit —
+// an over-limit body and unparseable JSON — to a clean status + message
+// instead of letting them fall through to a 500 / a raw parser string.
+const BODY_ERROR: Record<string, { status: number; message: string }> = {
+  'entity.too.large': {
+    status: HttpStatus.PAYLOAD_TOO_LARGE,
+    message: 'Request body is too large',
+  },
+  'entity.parse.failed': {
+    status: HttpStatus.BAD_REQUEST,
+    message: 'Malformed JSON body',
+  },
+};
+
+function bodyErrorType(exception: unknown): string | undefined {
+  const type = (exception as { type?: unknown } | null)?.type;
+  return typeof type === 'string' && type in BODY_ERROR ? type : undefined;
+}
+
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionFilter.name);
@@ -40,13 +60,16 @@ export class HttpExceptionFilter implements ExceptionFilter {
       exception instanceof Prisma.PrismaClientKnownRequestError
         ? exception.code
         : undefined;
+    const bodyErrType = bodyErrorType(exception);
 
     const status =
       exception instanceof HttpException
         ? exception.getStatus()
-        : prismaCode && PRISMA_STATUS[prismaCode]
-          ? PRISMA_STATUS[prismaCode]
-          : HttpStatus.INTERNAL_SERVER_ERROR;
+        : bodyErrType
+          ? BODY_ERROR[bodyErrType].status
+          : prismaCode && PRISMA_STATUS[prismaCode]
+            ? PRISMA_STATUS[prismaCode]
+            : HttpStatus.INTERNAL_SERVER_ERROR;
 
     // Unhandled (non-HttpException) errors were previously swallowed with no
     // server-side trace at all — only a generic "Internal server error" ever
@@ -54,7 +77,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
     // alone. Mapped Prisma client-errors are logged at warn (they're expected
     // bad input, not a fault); everything else unhandled stays at error.
     if (!(exception instanceof HttpException)) {
-      const level = prismaCode && PRISMA_STATUS[prismaCode] ? 'warn' : 'error';
+      const mappedClientError =
+        (prismaCode && PRISMA_STATUS[prismaCode]) || bodyErrType;
+      const level = mappedClientError ? 'warn' : 'error';
       this.logger[level](
         exception instanceof Error ? exception.message : String(exception),
         level === 'error' && exception instanceof Error
@@ -72,14 +97,29 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const body =
       exception instanceof HttpException
         ? exception.getResponse()
-        : prismaCode && PRISMA_MESSAGE[prismaCode]
-          ? PRISMA_MESSAGE[prismaCode]
-          : 'Internal server error';
-    const message =
+        : bodyErrType
+          ? BODY_ERROR[bodyErrType].message
+          : prismaCode && PRISMA_MESSAGE[prismaCode]
+            ? PRISMA_MESSAGE[prismaCode]
+            : 'Internal server error';
+    let message: string | string[] =
       typeof body === 'string'
         ? body
         : ((body as { message?: string | string[] })?.message ??
           'Internal server error');
+
+    // body-parser's JSON parse failure often reaches here already wrapped as a
+    // BadRequestException carrying the raw V8 parser text ("Expected property
+    // name or '}' in JSON at position 1 …"). Normalise it to a stable,
+    // non-leaky message.
+    const looksLikeJsonParseError =
+      typeof message === 'string' &&
+      /\bin JSON\b|JSON at position|Unexpected (token|end) .*JSON/i.test(
+        message,
+      );
+    if (status === 400 && looksLikeJsonParseError) {
+      message = 'Malformed JSON body';
+    }
 
     response.status(status).json({
       success: false,

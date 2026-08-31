@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import configuration from './config/configuration';
@@ -30,8 +31,23 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),
     // Baseline abuse protection — a generous per-IP ceiling for ordinary API
     // traffic. Sensitive endpoints (login, the assistant, the Slack webhook)
-    // set their own tighter @Throttle() on top of this.
-    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }]),
+    // set their own tighter @Throttle() on top of this. Backed by Redis when
+    // REDIS_URL is set so the limit stays global once Cloud Run scales past one
+    // instance; otherwise the in-memory store (fine for local / single-instance).
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => {
+        const redisUrl = config.get<string>('redis.url');
+        return {
+          throttlers: [{ name: 'default', ttl: 60_000, limit: 120 }],
+          errorMessage:
+            'Too many requests — please slow down and try again in a minute.',
+          ...(redisUrl
+            ? { storage: new ThrottlerStorageRedisService(redisUrl) }
+            : {}),
+        };
+      },
+    }),
     PrismaModule,
     StorageModule,
     AuthModule,

@@ -35,6 +35,12 @@ steps:
       # ack response is sent, since no request is left in flight to keep the
       # container's CPU allocated.
       - --no-cpu-throttling
+      # Pin each client (and its WebSocket) to one instance for the connection's
+      # life. Real correctness across >1 instance still needs REDIS_URL set (the
+      # socket.io Redis adapter + the Redis-backed throttler both switch on when
+      # it's present) — provision Memorystore + a Serverless VPC connector and
+      # add: --set-env-vars=REDIS_URL=redis://<host>:6379 --vpc-connector=<name>
+      - --session-affinity
       - --quiet
     waitFor: [push-backend]
 

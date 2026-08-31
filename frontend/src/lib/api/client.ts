@@ -40,7 +40,12 @@ apiClient.interceptors.response.use(
     const status = error.response?.status;
     const message = (error.response?.data as { message?: string } | undefined)?.message;
     const isBlocked = status === 403 && typeof message === 'string' && BLOCKED_ACCOUNT_MESSAGES.has(message);
-    if ((status === 401 || isBlocked) && typeof window !== 'undefined') {
+    // A 401 from a login call itself is just "wrong credentials" — the login
+    // page shows that inline. Auto-logout + hard redirect here would reload the
+    // page and wipe that error before the user ever sees it. Matches both
+    // `/auth/login` and `/platform/auth/login`.
+    const isLoginRequest = (error.config?.url ?? '').includes('auth/login');
+    if ((status === 401 || isBlocked) && !isLoginRequest && typeof window !== 'undefined') {
       window.localStorage.removeItem(AUTH_TOKEN_KEY);
       window.dispatchEvent(new Event(AUTH_CHANGE_EVENT));
       // Hard redirect: this runs outside the React tree, so useRouter() isn't available here.
